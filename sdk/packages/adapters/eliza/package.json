@@ -1,0 +1,23 @@
+{
+  "name": "@synapse-core/adapter-eliza",
+  "version": "0.1.0",
+  "description": "Eliza Plugin — Synapse as persistence + payment provider for Eliza agents",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": ["src"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@synapse-core/client": "^0.1.0",
+    "@synapse-core/memwal-bridge": "^0.1.0",
+    "@elizaos/core": "^0.1.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

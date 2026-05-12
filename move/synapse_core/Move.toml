@@ -15,4 +15,4 @@ synapse_core = "0x0"
 [dev-dependencies]
 
 [dev-addresses]
-synapse_core = "0x0"
+

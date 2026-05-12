@@ -1,0 +1,26 @@
+{
+  "name": "@synapse-core/indexer",
+  "version": "0.1.0",
+  "description": "Synapse Core indexer — correlates Sui events, MemWal events, and Walrus blob lifecycle into a unified GraphQL stream",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": ["src"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@synapse-core/client": "^0.1.0",
+    "@mysten/sui": "^1.18.0",
+    "graphql": "^16.10.0",
+    "graphql-yoga": "^5.10.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

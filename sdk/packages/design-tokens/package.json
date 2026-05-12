@@ -1,0 +1,21 @@
+{
+  "name": "@synapse-core/design-tokens",
+  "version": "0.1.0",
+  "description": "Synapse Core design system — Sui Overflow 2026 theme tokens",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./css": "./src/tokens.css",
+    "./tailwind": "./src/tailwind-preset.js"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

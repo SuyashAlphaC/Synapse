@@ -5,9 +5,13 @@
   "description": "Sovereign Agents on Walrus — the identity, policy, and coordination layer for autonomous AI agents on Sui",
   "license": "Apache-2.0",
   "workspaces": [
-    "sdk/packages/*",
-    "sdk/packages/adapters/*",
-    "web/*"
+    "sdk/packages/client",
+    "sdk/packages/design-tokens",
+    "sdk/packages/memwal-bridge",
+    "sdk/packages/indexer",
+    "sdk/packages/adapters/langgraph",
+    "sdk/packages/adapters/claude-sdk",
+    "sdk/packages/adapters/eliza"
   ],
   "engines": {
     "node": ">=20",

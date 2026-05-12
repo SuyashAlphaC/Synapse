@@ -1,0 +1,144 @@
+/* Synapse Core — Sui Overflow 2026 theme tokens (CSS custom properties).
+ *
+ * Import this file at the root of any frontend app:
+ *   @import "@synapse-core/design-tokens/css";
+ *
+ * All tokens mirror sdk/packages/design-tokens/src/index.ts. Keep them in sync.
+ */
+
+:root {
+  /* Surfaces & ink */
+  --syn-paper: #f5f0e6;
+  --syn-ink: #030f1c;
+  --syn-ink-soft: #1a2533;
+  --syn-code-tag: #5bc0eb;
+  --syn-grid: #d6e4f5;
+  --syn-divider: rgba(3, 15, 28, 0.12);
+
+  /* Accent palette */
+  --syn-accent-orange: #ff6b35;
+  --syn-accent-purple: #9d7aeb;
+  --syn-accent-green: #5bd49c;
+  --syn-accent-blue: #4a9bff;
+  --syn-accent-pink: #ff8fa3;
+  --syn-accent-yellow: #f7c543;
+  --syn-accent-lavender: #c4a8f0;
+  --syn-accent-coral: #ff7e6b;
+
+  /* Status colors */
+  --syn-status-success: #5bd49c;
+  --syn-status-warning: #f7c543;
+  --syn-status-danger: #ff6b35;
+  --syn-status-info: #4a9bff;
+
+  /* Agent state chip colors */
+  --syn-state-active: #5bd49c;
+  --syn-state-expired: #f7c543;
+  --syn-state-revoked: #ff6b35;
+  --syn-state-draft: #c4a8f0;
+
+  /* Typography */
+  --syn-font-display:
+    'Inter Display', Inter, system-ui, -apple-system, sans-serif;
+  --syn-font-sans: Inter, system-ui, -apple-system, sans-serif;
+  --syn-font-mono:
+    'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, monospace;
+
+  --syn-letter-tighter: -0.04em;
+  --syn-letter-tight: -0.02em;
+
+  /* Radii (sharp by default) */
+  --syn-radius-none: 0;
+  --syn-radius-sm: 2px;
+  --syn-radius-base: 4px;
+  --syn-radius-md: 6px;
+  --syn-radius-lg: 8px;
+  --syn-radius-xl: 12px;
+  --syn-radius-full: 9999px;
+
+  /* Drop shadows */
+  --syn-shadow-flat: 4px 4px 0 0 var(--syn-ink);
+  --syn-shadow-flat-soft: 2px 2px 0 0 rgba(3, 15, 28, 0.4);
+  --syn-shadow-lift: 0 4px 14px rgba(3, 15, 28, 0.08);
+  --syn-shadow-hover: 0 8px 24px rgba(3, 15, 28, 0.12);
+
+  /* Motion */
+  --syn-duration-fast: 120ms;
+  --syn-duration-base: 200ms;
+  --syn-duration-slow: 320ms;
+  --syn-easing-standard: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Layout */
+  --syn-max-container: 1280px;
+  --syn-max-wide: 1440px;
+}
+
+/* Blueprint grid utility — apply to hero / section backgrounds.
+   Usage:
+     <section class="syn-blueprint">…</section>                                  */
+.syn-blueprint {
+  background-color: var(--syn-paper);
+  background-image:
+    linear-gradient(var(--syn-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--syn-grid) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Sharp flat-shadow button style characteristic of the Overflow aesthetic.
+   Usage:
+     <button class="syn-button syn-button--primary">Register</button>           */
+.syn-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  font-family: var(--syn-font-display);
+  font-weight: 700;
+  letter-spacing: var(--syn-letter-tight);
+  border: 2px solid var(--syn-ink);
+  border-radius: var(--syn-radius-base);
+  background-color: var(--syn-paper);
+  color: var(--syn-ink);
+  box-shadow: var(--syn-shadow-flat);
+  cursor: pointer;
+  transition:
+    transform var(--syn-duration-fast) var(--syn-easing-standard),
+    box-shadow var(--syn-duration-fast) var(--syn-easing-standard);
+}
+
+.syn-button:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 0 var(--syn-ink);
+}
+
+.syn-button:active {
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 0 var(--syn-ink);
+}
+
+.syn-button--primary {
+  background-color: var(--syn-ink);
+  color: var(--syn-paper);
+}
+
+.syn-button--accent {
+  background-color: var(--syn-accent-orange);
+  color: var(--syn-ink);
+}
+
+/* Code-tag decoration — the `<date>...</date>` motif from the hero.
+   Usage:
+     <span class="syn-tag">date</span> May 12, 2026 <span class="syn-tag">/date</span> */
+.syn-tag {
+  font-family: var(--syn-font-mono);
+  color: var(--syn-code-tag);
+  font-weight: 500;
+}
+
+.syn-tag::before {
+  content: '<';
+}
+
+.syn-tag::after {
+  content: '>';
+}

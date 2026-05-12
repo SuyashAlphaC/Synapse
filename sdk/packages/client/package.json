@@ -1,0 +1,32 @@
+{
+  "name": "@synapse-core/client",
+  "version": "0.1.0",
+  "description": "Synapse Core TypeScript client — Sui + Walrus + MemWal + Seal + Sui Stack Messaging",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./agent": "./src/agent.ts",
+    "./wallet": "./src/wallet.ts",
+    "./artifacts": "./src/artifacts.ts",
+    "./zklogin": "./src/zklogin.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mysten/sui": "^1.18.0",
+    "@mysten/walrus": "^0.5.0",
+    "@mysten/seal": "^0.3.0",
+    "@mysten/zklogin": "^0.10.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}
