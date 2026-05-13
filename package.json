@@ -8,6 +8,7 @@
     "sdk/packages/client",
     "sdk/packages/design-tokens",
     "sdk/packages/memwal-bridge",
+    "sdk/packages/vault",
     "sdk/packages/indexer",
     "sdk/packages/adapters/langgraph",
     "sdk/packages/adapters/claude-sdk",

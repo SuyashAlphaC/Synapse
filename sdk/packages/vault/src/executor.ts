@@ -1,0 +1,193 @@
+/**
+ * Vault executor — converts a `RebalancePlan` into an executable Synapse PTB.
+ *
+ * Single PTB chains:
+ *   1. For each planned trade: pre-swap authorize event (`deepbook_adapter::authorize_swap`)
+ *   2. For each planned trade: `wallet::spend<From>` to extract policy-gated coin
+ *   3. For each planned trade: actual DeepBookV3 swap call (composed externally
+ *      by the caller — we don't wrap DeepBookV3 directly per the composability
+ *      principle established in `deepbook_adapter.move`)
+ *   4. For each completed trade: `deepbook_adapter::record_swap` audit event
+ *   5. `artifacts::publish` for the markdown audit report (Walrus blob already
+ *      uploaded out-of-band)
+ *   6. `attestation::log_action` for a top-level rebalance entry
+ *
+ * The DeepBookV3 swap call is supplied as a higher-order function by the
+ * caller — this keeps the executor decoupled from any specific DeepBookV3
+ * version while still enforcing Synapse policy.
+ */
+
+import type { Transaction, TransactionResult } from '@mysten/sui/transactions';
+import {
+  target,
+  ActionKind,
+  SwapDirection,
+  publishArtifactCall,
+  spend,
+} from '@synapse-core/client';
+import { sha256 } from '@noble/hashes/sha2.js';
+import type { ExecutedTrade, RebalancePlan, PlannedTrade, AuditReport } from './types.js';
+
+/**
+ * Caller-supplied DeepBookV3 swap function. Given the input coin handle from
+ * `wallet::spend`, this returns the output coin handle. The executor wires
+ * the input/output together but doesn't know DeepBookV3's specific API.
+ *
+ * Implementations should call the appropriate DeepBookV3 swap function in the
+ * same PTB and return the resulting output coin.
+ */
+export type DeepBookSwapFn = (
+  tx: Transaction,
+  args: {
+    trade: PlannedTrade;
+    inputCoin: TransactionResult;
+  },
+) => TransactionResult;
+
+export interface BuildRebalancePTBArgs {
+  tx: Transaction;
+  synapsePackageId: string;
+  vaultId: string;
+  plan: RebalancePlan;
+  report: AuditReport;
+  /** Walrus upload result for the report. */
+  reportWalrusBlobId: string;
+  /** Default DeepBookV3 package address — used as `target_pkg` in spend gates. */
+  deepbookPkg: string;
+  /** Caller-supplied DeepBookV3 swap function. */
+  swap: DeepBookSwapFn;
+}
+
+export interface BuildRebalancePTBResult {
+  /** The PTB result handle for the published artifact (a `u64` slot). */
+  artifactSlotHandle: TransactionResult;
+}
+
+/**
+ * Compose the rebalance PTB. The caller is responsible for actually signing
+ * and submitting the transaction.
+ */
+export function buildRebalancePTB(args: BuildRebalancePTBArgs): BuildRebalancePTBResult {
+  const { tx, synapsePackageId, vaultId, plan, report, reportWalrusBlobId, deepbookPkg, swap } =
+    args;
+
+  for (const trade of plan.trades) {
+    // 1. Authorize the swap (pre-flight policy gate + event)
+    tx.moveCall({
+      target: target(synapsePackageId, 'deepbookAdapter', 'authorize_swap'),
+      typeArguments: [trade.fromTypeTag, trade.toTypeTag],
+      arguments: [
+        tx.object(vaultId),
+        tx.pure.id(trade.poolId),
+        tx.pure.address(deepbookPkg),
+        tx.pure.u8(trade.direction),
+        tx.pure.u64(trade.amountIn),
+      ],
+    });
+
+    // 2. Withdraw the input coin via policy-gated spend
+    const inputCoin = spend(tx, synapsePackageId, {
+      agentId: vaultId,
+      targetPkg: deepbookPkg,
+      amount: trade.amountIn,
+      coinTypeTag: trade.fromTypeTag,
+    });
+
+    // 3. Caller-supplied DeepBookV3 swap
+    const outputCoin = swap(tx, { trade, inputCoin });
+
+    // 4. Deposit the output back into the vault treasury
+    tx.moveCall({
+      target: target(synapsePackageId, 'wallet', 'deposit'),
+      typeArguments: [trade.toTypeTag],
+      arguments: [tx.object(vaultId), outputCoin],
+    });
+
+    // 5. Record the swap audit event
+    tx.moveCall({
+      target: target(synapsePackageId, 'deepbookAdapter', 'record_swap'),
+      typeArguments: [trade.fromTypeTag, trade.toTypeTag],
+      arguments: [
+        tx.object(vaultId),
+        tx.pure.id(trade.poolId),
+        tx.pure.address(deepbookPkg),
+        tx.pure.u8(trade.direction),
+        tx.pure.u64(trade.amountIn),
+        tx.pure.u64(trade.minAmountOut), // best-effort; real value from off-chain
+        tx.pure.string(`${plan.planId}#${shortenPool(trade.poolId)}`),
+      ],
+    });
+  }
+
+  // 6. Publish the audit report as a Walrus artifact
+  const artifactSlotHandle = publishArtifactCall(tx, synapsePackageId, {
+    agentId: vaultId,
+    walrusBlobId: new TextEncoder().encode(reportWalrusBlobId),
+    sha256: report.sha256,
+    mimeType: 'text/markdown',
+    sizeBytes: BigInt(new TextEncoder().encode(report.markdown).byteLength),
+    sealEncrypted: false,
+    label: `rebalance-${plan.planId}`,
+  });
+
+  // 7. Top-level action log
+  tx.moveCall({
+    target: target(synapsePackageId, 'attestation', 'log_action'),
+    arguments: [
+      tx.object(vaultId),
+      tx.pure.u8(ActionKind.ArtifactPublish),
+      tx.pure.string(`rebalance ${plan.planId}: ${plan.summary}`),
+      tx.pure.vector('u8', Array.from(report.sha256)),
+    ],
+  });
+
+  return { artifactSlotHandle };
+}
+
+/** Compute the deterministic plan ID for a given trade list. */
+export function computePlanId(vaultId: string, epoch: bigint, trades: PlannedTrade[]): string {
+  const payload = JSON.stringify({
+    v: vaultId,
+    e: epoch.toString(),
+    t: trades.map((t) => ({
+      p: t.poolId,
+      f: t.fromTypeTag,
+      to: t.toTypeTag,
+      a: t.amountIn.toString(),
+      m: t.minAmountOut.toString(),
+      d: t.direction,
+    })),
+  });
+  const digest = sha256(new TextEncoder().encode(payload));
+  return `${bytesToHex(digest).slice(0, 16)}`;
+}
+
+/** Reconstruct an ExecutedTrade record from a planned trade + actual output. */
+export function makeExecutedTrade(planned: PlannedTrade, actualAmountOut: bigint): ExecutedTrade {
+  const denom = Number(planned.amountIn);
+  const executionPrice = denom === 0 ? 0 : Number(actualAmountOut) / denom;
+  return {
+    poolId: planned.poolId,
+    fromTypeTag: planned.fromTypeTag,
+    toTypeTag: planned.toTypeTag,
+    amountIn: planned.amountIn,
+    amountOut: actualAmountOut,
+    executionPrice,
+  };
+}
+
+function shortenPool(poolId: string): string {
+  return poolId.slice(0, 10);
+}
+
+function bytesToHex(b: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < b.length; i++) {
+    const v = b[i] ?? 0;
+    s += v.toString(16).padStart(2, '0');
+  }
+  return s;
+}
+
+// Re-export swap direction enum for convenience (matches Move discriminants).
+export { SwapDirection };

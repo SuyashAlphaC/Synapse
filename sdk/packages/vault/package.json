@@ -1,0 +1,33 @@
+{
+  "name": "@synapse-core/vault",
+  "version": "0.1.0",
+  "description": "Synapse Vault — autonomous AI treasury manager. Strategy engine, rebalance executor, audit-report generator. Built on Synapse Core.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./strategies": "./src/strategies/index.ts",
+    "./executor": "./src/executor.ts",
+    "./report": "./src/report.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@synapse-core/client": "*",
+    "@synapse-core/memwal-bridge": "*",
+    "@mysten/sui": "^2.16.2",
+    "@mysten/walrus": "^1.1.7",
+    "@noble/hashes": "^2.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0",
+    "@types/node": "^22.10.0"
+  }
+}
