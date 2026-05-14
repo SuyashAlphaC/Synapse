@@ -27,6 +27,7 @@
     "@mysten/sui": "^2.16.2",
     "@mysten/walrus": "^1.1.7",
     "@noble/hashes": "^2.0.0",
+    "@pythnetwork/price-service-client": "^1.11.0",
     "@synapse-core/client": "*",
     "@synapse-core/memwal-bridge": "*",
     "pino": "^10.3.1"

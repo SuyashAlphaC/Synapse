@@ -27,6 +27,18 @@ const DEFAULT_TICK_INTERVAL_MS = 600_000;
 const DEFAULT_MAX_FAILURES = 5;
 const DEFAULT_WALRUS_EPOCHS = 5;
 
+/**
+ * Optional dependency overrides for testing. Production callers leave this
+ * undefined; tests inject fake clients and loggers via `vi.mock` on the
+ * sibling modules plus an injected `SuiJsonRpcClient` here.
+ */
+export interface VaultRuntimeDeps {
+  /** Replace the auto-constructed `SuiJsonRpcClient`. */
+  client?: SuiJsonRpcClient;
+  /** Replace the auto-constructed logger. Useful to silence test output. */
+  logger?: VaultLogger;
+}
+
 export class VaultRuntime {
   readonly #config: RuntimeConfig;
   readonly #client: SuiJsonRpcClient;
@@ -36,13 +48,15 @@ export class VaultRuntime {
   #activeTick: Promise<ExecutionReceipt | null> | null = null;
   #consecutiveFailures = 0;
 
-  constructor(config: RuntimeConfig) {
+  constructor(config: RuntimeConfig, deps: VaultRuntimeDeps = {}) {
     this.#config = config;
-    this.#client = new SuiJsonRpcClient({
-      url: config.fullnodeUrl,
-      network: config.walrusNetwork === 'mainnet' ? 'mainnet' : 'testnet',
-    });
-    this.#logger = createLogger();
+    this.#client =
+      deps.client ??
+      new SuiJsonRpcClient({
+        url: config.fullnodeUrl,
+        network: config.walrusNetwork === 'mainnet' ? 'mainnet' : 'testnet',
+      });
+    this.#logger = deps.logger ?? createLogger();
   }
 
   start(): void {
@@ -282,10 +296,28 @@ function priceHoldings(holdings: HoldingSnapshot[], prices: Record<string, numbe
   });
 }
 
+/**
+ * Convert the on-chain `spend_per_epoch` u64 into a USD-denominated cap.
+ *
+ * The Move VM enforces `spent_this_epoch` as a generic counter — it does not
+ * tag the per-coin denomination. To render a USD value we infer the most
+ * plausible denomination heuristically:
+ *
+ *   1. The largest-by-USD-value holding's coin type (highest-conviction signal
+ *      about what the operator intends to spend in).
+ *   2. Otherwise the first holding.
+ *   3. Otherwise 0 (no holdings → no meaningful USD value).
+ *
+ * Whichever coin we pick, we apply that coin's decimal scaling and USD price.
+ */
 function spendCapUsd(spendPerEpoch: bigint, holdings: HoldingSnapshot[]): number {
-  const sui = holdings.find((holding) => holding.coinTypeTag.endsWith('::sui::SUI'));
-  const priceUsd = sui?.priceUsd ?? 0;
-  return (Number(spendPerEpoch) / 1_000_000_000) * priceUsd;
+  if (holdings.length === 0) return 0;
+  const denom = holdings.reduce((best, current) =>
+    current.valueUsd > best.valueUsd ? current : best,
+  );
+  if (denom.priceUsd <= 0) return 0;
+  const scaled = Number(spendPerEpoch) / Math.pow(10, denom.decimals);
+  return scaled * denom.priceUsd;
 }
 
 function parseExecutedTrades(

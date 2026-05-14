@@ -7,3 +7,4 @@ export * from './publisher.js';
 export * from './deepbook.js';
 export * from './keypair.js';
 export * from './logger.js';
+export * from './oracle.js';

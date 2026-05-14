@@ -7,7 +7,7 @@
    - `MemWal account ID`: the `0x...` account object ID.
    - `Delegate key (hex)`: the delegate secret used by the runtime.
 
-Choosing "Skip - no memory" mints the Vault with empty `memwal_*` bytes. The runtime detects the missing MemWal config and runs without recall, while still writing Walrus audit artifacts and Sui action logs.
+Choosing "Skip — no memory" mints the Vault with empty `memwal_*` bytes. The runtime detects the missing MemWal config and runs without recall, while still writing Walrus audit artifacts and Sui action logs.
 
 The dashboard stores the delegate key in browser `localStorage` under:
 

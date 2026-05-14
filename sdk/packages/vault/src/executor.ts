@@ -33,15 +33,23 @@ import type { ExecutedTrade, RebalancePlan, PlannedTrade, AuditReport } from './
  * `wallet::spend`, this returns the output coin handle. The executor wires
  * the input/output together but doesn't know DeepBookV3's specific API.
  *
- * Implementations should call the appropriate DeepBookV3 swap function in the
- * same PTB and return the resulting output coin.
+ * The function receives `vaultId` and `synapsePackageId` so it can route any
+ * unfilled remainder coins back into the vault treasury via `wallet::deposit`
+ * — DeepBookV3 swaps can return non-zero base/quote remainders on partial
+ * fills, and silently `destroy_zero`-ing them would revert the entire PTB.
  */
+export interface DeepBookSwapContext {
+  trade: PlannedTrade;
+  inputCoin: TransactionObjectArgument;
+  /** AgentIdentity object ID. Used to deposit remainders back to treasury. */
+  vaultId: string;
+  /** synapse_core package ID. Used to construct wallet::deposit calls. */
+  synapsePackageId: string;
+}
+
 export type DeepBookSwapFn = (
   tx: Transaction,
-  args: {
-    trade: PlannedTrade;
-    inputCoin: TransactionObjectArgument;
-  },
+  ctx: DeepBookSwapContext,
 ) => TransactionObjectArgument;
 
 export interface BuildRebalancePTBArgs {
@@ -94,7 +102,7 @@ export function buildRebalancePTB(args: BuildRebalancePTBArgs): BuildRebalancePT
     });
 
     // 3. Caller-supplied DeepBookV3 swap
-    const outputCoin = swap(tx, { trade, inputCoin });
+    const outputCoin = swap(tx, { trade, inputCoin, vaultId, synapsePackageId });
 
     // 4. Deposit the output back into the vault treasury
     tx.moveCall({
