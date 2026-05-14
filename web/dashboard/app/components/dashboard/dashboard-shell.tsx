@@ -7,24 +7,32 @@ import { AuditTimeline } from './audit-timeline';
 import { DangerZone } from './danger-zone';
 import { DashboardToolbar } from './dashboard-toolbar';
 import { LiveVaultBanner } from './live-vault-banner';
+import { PolicyPanel } from './policy-panel';
+import { ArtifactsPanel } from './artifacts-panel';
+import { RunTickButton } from './run-tick-button';
 import { CodeTag } from '../ui/code-tag';
 import {
   SAMPLE_REBALANCE_HISTORY,
   SAMPLE_TIMELINE,
   SAMPLE_VAULT,
 } from '@/lib/sample-data';
-import { formatUsd, shortenAddress, timeAgo } from '@/lib/format';
+import { formatUsd } from '@/lib/format';
 import type { LocalVaultRecord } from '@/lib/local-vaults';
+import { useLiveVault } from '../../hooks/use-live-vault';
 
 /**
- * Top-level dashboard client island. Shares the detected live-vault state
- * with the Danger Zone (real `vaultId` enables on-chain revoke) and surfaces
- * a banner so the demo data is honest about its read-only nature.
+ * Top-level dashboard client island. Detects the user's live vault, fetches
+ * live on-chain state + Pyth prices for it, and threads that data into every
+ * panel. Falls back to sample data only when there's no live vault to show.
  */
 export function DashboardShell() {
   const [liveVault, setLiveVault] = useState<LocalVaultRecord | null>(null);
-  const vault = SAMPLE_VAULT;
-  const aumFeeAccruedToday = (vault.navUsd * vault.managementFeeBps) / 10_000 / 365;
+  const liveQuery = useLiveVault(liveVault?.agentId);
+  const live = liveQuery.data ?? null;
+
+  const sampleVault = SAMPLE_VAULT;
+  const navUsd = live?.navUsd ?? sampleVault.navUsd;
+  const aumFeeAccruedToday = (navUsd * sampleVault.managementFeeBps) / 10_000 / 365;
 
   return (
     <>
@@ -34,7 +42,12 @@ export function DashboardShell() {
       </div>
 
       <div className="mt-6">
-        <VaultCard vault={vault} history={SAMPLE_REBALANCE_HISTORY} />
+        <VaultCard
+          vault={sampleVault}
+          history={SAMPLE_REBALANCE_HISTORY}
+          {...(live ? { live } : {})}
+          loading={liveQuery.isLoading}
+        />
       </div>
 
       <section className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -43,10 +56,30 @@ export function DashboardShell() {
           value={formatUsd(aumFeeAccruedToday)}
           accent="var(--accent-green)"
         />
-        <MicroCard label="Walrus artifacts" value="73" accent="var(--accent-purple)" />
-        <MicroCard label="Messages exchanged" value="142" accent="var(--accent-blue)" />
+        <MicroCard
+          label="Walrus artifacts"
+          value={live ? live.identity.artifactCount.toString() : '73'}
+          accent="var(--accent-purple)"
+        />
+        <MicroCard
+          label="Spend cap (USD)"
+          value={live ? formatUsd(live.spendCapUsd) : formatUsd(62_379)}
+          accent="var(--accent-blue)"
+        />
         <MicroCard label="Strategy revs" value="1.0.0" accent="var(--accent-yellow)" />
       </section>
+
+      {liveVault && (
+        <div className="mt-6 flex flex-wrap items-center gap-3 rounded-md border-2 border-ink bg-paper-strong px-5 py-3 shadow-[2px_2px_0_0_var(--ink)]">
+          <CodeTag>strategy</CodeTag>
+          <span className="font-display text-sm">
+            Run a noop strategy tick now — produces a real audit event on-chain.
+          </span>
+          <span className="ml-auto">
+            <RunTickButton vaultId={liveVault.agentId} />
+          </span>
+        </div>
+      )}
 
       <div className="mt-8 grid grid-cols-1 gap-8 xl:grid-cols-[1.05fr_1fr]">
         <AuditTimeline
@@ -54,8 +87,13 @@ export function DashboardShell() {
           {...(liveVault ? { liveVaultId: liveVault.agentId } : {})}
         />
         <div className="flex flex-col gap-8">
-          <HoldingsPanel vault={vault} />
-          <PolicyPanel />
+          <HoldingsPanel
+            vault={sampleVault}
+            {...(live ? { live } : {})}
+            loading={liveQuery.isLoading}
+          />
+          <PolicyPanel {...(live ? { live } : {})} />
+          {liveVault && <ArtifactsPanel vaultId={liveVault.agentId} />}
           <DangerZone {...(liveVault ? { vaultId: liveVault.agentId } : {})} />
         </div>
       </div>
@@ -69,71 +107,6 @@ function MicroCard({ label, value, accent }: { label: string; value: string; acc
       <div className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: accent }} />
       <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">{label}</p>
       <p className="num-display mt-2 text-2xl">{value}</p>
-    </div>
-  );
-}
-
-function PolicyPanel() {
-  return (
-    <div className="card-flat p-6">
-      <div className="mb-5 flex items-center justify-between">
-        <h3 className="font-display text-2xl font-bold">Policy bounds</h3>
-        <CodeTag>enforced on-chain</CodeTag>
-      </div>
-      <dl className="grid gap-4">
-        <PolicyRow
-          label="Spend cap"
-          value="5%/epoch · ≈ $62,379"
-          hint="Per-epoch outflow cap, enforced by wallet::spend"
-          accent="var(--accent-blue)"
-        />
-        <PolicyRow
-          label="Allowlisted contracts"
-          value="DeepBookV3 SUI/USDC pool"
-          hint="Single approved counterparty package"
-          accent="var(--accent-green)"
-        />
-        <PolicyRow
-          label="Expiry"
-          value="63 epochs remaining"
-          hint="Automatic kill at epoch 2148"
-          accent="var(--accent-yellow)"
-        />
-        <PolicyRow
-          label="Session key"
-          value={shortenAddress(SAMPLE_VAULT.sessionAddr)}
-          hint={`Active ${timeAgo(SAMPLE_VAULT.inceptionTs)} · rotatable`}
-          accent="var(--accent-purple)"
-        />
-      </dl>
-    </div>
-  );
-}
-
-function PolicyRow({
-  label,
-  value,
-  hint,
-  accent,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  accent: string;
-}) {
-  return (
-    <div className="flex items-start gap-3 border-b border-divider pb-3 last:border-0 last:pb-0">
-      <span
-        className="mt-1 h-2.5 w-2.5 rounded-sm border border-ink"
-        style={{ backgroundColor: accent }}
-      />
-      <div className="flex-1">
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="font-display text-sm font-semibold">{label}</span>
-          <span className="num text-right text-sm">{value}</span>
-        </div>
-        <p className="mt-0.5 font-mono text-[10px] text-ink-mute">{hint}</p>
-      </div>
     </div>
   );
 }

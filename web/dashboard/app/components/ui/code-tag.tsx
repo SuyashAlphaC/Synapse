@@ -11,11 +11,12 @@ interface CodeTagProps {
  * Cyan angle brackets, mono content between.
  */
 export function CodeTag({ children, className = '', variant = 'open' }: CodeTagProps) {
-  return (
-    <span className={`${variant === 'close' ? 'code-tag-close' : 'code-tag'} ${className}`}>
-      {children}
-    </span>
-  );
+  // Always apply the base `.code-tag` styling (mono font, size, weight,
+  // currentColor); the `.code-tag-close` modifier only overrides the
+  // pseudo-element bracket characters.
+  const classes =
+    variant === 'close' ? `code-tag code-tag-close ${className}` : `code-tag ${className}`;
+  return <span className={classes.trim()}>{children}</span>;
 }
 
 interface TagPairProps {

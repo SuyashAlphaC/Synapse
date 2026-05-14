@@ -4,19 +4,28 @@ import type { Vault } from '@/lib/sample-data';
 import { formatUsd, shortenAddress, timeAgo } from '@/lib/format';
 import { Sparkline } from './sparkline';
 import { CodeTag } from '../ui/code-tag';
+import type { PricedVaultState } from '../../hooks/use-live-vault';
 
 interface VaultCardProps {
   vault: Vault;
   history: number[];
+  /** Real on-chain state, when available. Overrides matching sample fields. */
+  live?: PricedVaultState;
+  loading?: boolean;
 }
 
 /**
  * Top-of-dashboard hero card showing the active vault's NAV, 24h PnL,
  * inline sparkline, and fee economics. Sharp two-color flat-shadow style.
  */
-export function VaultCard({ vault, history }: VaultCardProps) {
+export function VaultCard({ vault, history, live, loading }: VaultCardProps) {
+  const navUsd = live?.navUsd ?? vault.navUsd;
+  const ownerDisplay = live ? live.identity.owner : vault.owner;
+  const sessionDisplay = live ? live.identity.sessionAddr : vault.sessionAddr;
+  const expiryDisplay = live ? live.identity.expiryEpoch.toString() : vault.expiryEpoch.toString();
   const positive = vault.pnl24hUsd >= 0;
-  const aumFeeUsdYear = (vault.navUsd * vault.managementFeeBps) / 10_000;
+  const aumFeeUsdYear = (navUsd * vault.managementFeeBps) / 10_000;
+  const dataMode: 'live' | 'demo' = live ? 'live' : 'demo';
 
   return (
     <div className="card-flat relative overflow-hidden">
@@ -25,11 +34,19 @@ export function VaultCard({ vault, history }: VaultCardProps) {
       <div className="relative grid gap-8 p-8 md:grid-cols-[1.4fr_1fr] md:p-10">
         <div className="flex flex-col gap-6">
           <div className="flex items-center gap-3">
-            <span className="pill" data-state={vault.status}>
-              <span className="live-dot" /> {vault.status}
+            <span
+              className="pill"
+              data-state={live ? (live.identity.revoked ? 'revoked' : 'active') : vault.status}
+            >
+              <span className="live-dot" />{' '}
+              {live ? (live.identity.revoked ? 'revoked' : 'active') : vault.status}
             </span>
             <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-mute">
               {vault.strategyName} v{vault.strategyVersion}
+            </span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+              <CodeTag>{dataMode}</CodeTag>
+              {loading ? ' · refreshing…' : null}
             </span>
           </div>
 
@@ -43,7 +60,7 @@ export function VaultCard({ vault, history }: VaultCardProps) {
               <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-mute">
                 Net asset value
               </p>
-              <p className="num-display mt-1 text-5xl">{formatUsd(vault.navUsd)}</p>
+              <p className="num-display mt-1 text-5xl">{formatUsd(navUsd)}</p>
             </div>
             <div className="pb-2">
               <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-mute">
@@ -64,10 +81,10 @@ export function VaultCard({ vault, history }: VaultCardProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
-            <Detail label="Owner" value={shortenAddress(vault.owner)} />
-            <Detail label="Session" value={shortenAddress(vault.sessionAddr)} />
+            <Detail label="Owner" value={shortenAddress(ownerDisplay)} />
+            <Detail label="Session" value={shortenAddress(sessionDisplay)} />
             <Detail label="Inception" value={timeAgo(vault.inceptionTs)} />
-            <Detail label="Expires at epoch" value={vault.expiryEpoch.toString()} />
+            <Detail label="Expires at epoch" value={expiryDisplay} />
           </div>
         </div>
 

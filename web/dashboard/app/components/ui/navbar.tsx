@@ -9,8 +9,8 @@ const NAV_LINKS = [
   { href: '/', label: 'Overview' },
   { href: '/dashboard', label: 'Vaults' },
   { href: '/mint', label: 'Mint vault' },
+  { href: '/inspector', label: 'Inspector' },
   { href: '#pricing', label: 'Pricing' },
-  { href: '#docs', label: 'Docs' },
 ];
 
 export function Navbar() {
