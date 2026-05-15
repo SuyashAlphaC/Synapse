@@ -29,6 +29,7 @@ export interface LiveAgentIdentity {
   messagingInbox: string | null;
   messagingOutbox: string | null;
   revoked: boolean;
+  strategyId: string;
 }
 
 export interface LiveBalance {
@@ -182,7 +183,22 @@ function parseIdentity(id: string, fields: Record<string, unknown>): LiveAgentId
     messagingInbox: optionId(fields.messaging_inbox),
     messagingOutbox: optionId(fields.messaging_outbox),
     revoked: booleanField(fields.revoked, 'revoked'),
+    strategyId: idField(fields.strategy_id, 'strategy_id'),
   };
+}
+
+function idField(value: unknown, label: string): string {
+  // Sui parsed `ID` arrives as either a plain string or `{ id: "0x..." }`.
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.id === 'string') return obj.id;
+    if (typeof obj.fields === 'object' && obj.fields !== null) {
+      const f = obj.fields as Record<string, unknown>;
+      if (typeof f.id === 'string') return f.id;
+    }
+  }
+  throw new Error(`${label} is not an ID-like value`);
 }
 
 // ---------------------------------------------------------------------------

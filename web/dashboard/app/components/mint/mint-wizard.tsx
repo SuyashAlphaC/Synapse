@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   useCurrentAccount,
@@ -15,6 +15,8 @@ import { buildMintPTB, generateSessionKeypair } from '@/lib/ptb';
 import { explorerTxUrl } from '@/lib/synapse-config';
 import { shortenAddress, shortenHash } from '@/lib/format';
 import { recordVault } from '@/lib/local-vaults';
+import { RISK_LABEL, type LiveStrategy } from '@/lib/strategies';
+import { useStrategies } from '../../hooks/use-strategies';
 
 const STEPS = [
   {
@@ -26,27 +28,34 @@ const STEPS = [
   },
   {
     n: '02',
+    title: 'Hire a strategy',
+    body: 'Pick a published strategy from the marketplace. Royalty + version + lifetime reputation are all on-chain; you can revoke and rehire any time.',
+    accent: 'var(--accent-yellow)',
+    tag: 'marketplace',
+  },
+  {
+    n: '03',
     title: 'Configure policy',
     body: 'Spend cap per epoch, contract allowlist, expiry. Every constraint becomes Move VM enforcement.',
     accent: 'var(--accent-green)',
     tag: 'policy',
   },
   {
-    n: '03',
+    n: '04',
     title: 'Seed the treasury',
     body: 'Fund the Vault with SUI from your wallet. Balances live inside the AgentIdentity Bag, gated by wallet::spend.',
     accent: 'var(--accent-orange)',
     tag: 'treasury',
   },
   {
-    n: '04',
+    n: '05',
     title: 'Connect MemWal',
     body: 'Attach a MemWal account for private strategy recall, or mint without memory and keep every decision on-chain.',
     accent: 'var(--accent-purple)',
     tag: 'memory',
   },
   {
-    n: '05',
+    n: '06',
     title: 'Mint on testnet',
     body: 'Construct + sign + submit the mint PTB. agent::new → fund<SUI> → share, atomic.',
     accent: 'var(--accent-blue)',
@@ -55,6 +64,7 @@ const STEPS = [
 ] as const;
 
 interface MintForm {
+  strategyId: string | null;
   spendPct: number;
   expiryDays: number;
   fundingSui: number;
@@ -63,13 +73,6 @@ interface MintForm {
   skipMemWal: boolean;
 }
 
-/**
- * Real mint wizard. The "Mint vault" button at step 4 constructs an actual
- * PTB targeting the deployed `synapse_core` package on Sui testnet, signs
- * it via the connected wallet, and submits via `useSignAndExecuteTransaction`.
- *
- * No simulation — the resulting AgentIdentity is a real shared object.
- */
 export function MintWizard() {
   const account = useCurrentAccount();
   const suiClient = useSuiClient();
@@ -77,6 +80,7 @@ export function MintWizard() {
   const toast = useToast();
   const [activeStep, setActiveStep] = useState(0);
   const [form, setForm] = useState<MintForm>({
+    strategyId: null,
     spendPct: 5,
     expiryDays: 7,
     fundingSui: 0.1,
@@ -90,7 +94,13 @@ export function MintWizard() {
     sessionAddress: string;
   } | null>(null);
 
-  // Step 1 (wallet) auto-advances when an account is detected.
+  const strategiesQuery = useStrategies();
+  const strategies = useMemo(
+    () => strategiesQuery.data?.filter((s) => s.active) ?? [],
+    [strategiesQuery.data],
+  );
+  const selected = strategies.find((s) => s.id === form.strategyId) ?? null;
+
   if (account && activeStep === 0 && !mintResult) {
     setTimeout(() => setActiveStep(1), 0);
   }
@@ -112,6 +122,14 @@ export function MintWizard() {
       });
       return;
     }
+    if (!form.strategyId) {
+      toast.push({
+        variant: 'warn',
+        title: 'Pick a strategy first',
+        body: 'Every vault must be hired against a published strategy.',
+      });
+      return;
+    }
 
     const session = generateSessionKeypair();
     const fundingMist = BigInt(Math.round(form.fundingSui * 1_000_000_000));
@@ -121,6 +139,7 @@ export function MintWizard() {
       const { epoch } = await suiClient.getLatestSuiSystemState();
       const expiryEpoch = BigInt(epoch) + BigInt(form.expiryDays);
       const tx = buildMintPTB({
+        strategyId: form.strategyId,
         sessionAddr: session.address,
         expiryEpoch,
         spendPerEpochMist: spendPerEpochMist > 0n ? spendPerEpochMist : 1n,
@@ -146,11 +165,6 @@ export function MintWizard() {
 
       const result = await signAndExecute({ transaction: tx });
 
-      // Wait for the fullnode to index the transaction before reading it.
-      // The wallet returns the digest as soon as the validator certificate
-      // is available, but `getTransactionBlock` queries a fullnode that may
-      // not have applied the checkpoint yet — without this wait we race and
-      // see "Could not find the referenced transaction".
       const detail = await suiClient.waitForTransaction({
         digest: result.digest,
         options: { showObjectChanges: true, showEffects: true },
@@ -261,6 +275,16 @@ export function MintWizard() {
                   )}
 
                   {state === 'active' && i === 1 && (
+                    <StrategyStep
+                      strategies={strategies}
+                      loading={strategiesQuery.isLoading}
+                      selectedId={form.strategyId}
+                      onSelect={(id) => setForm({ ...form, strategyId: id })}
+                      onAdvance={advance}
+                      onBack={back}
+                    />
+                  )}
+                  {state === 'active' && i === 2 && (
                     <PolicyStep
                       form={form}
                       onChange={setForm}
@@ -268,7 +292,7 @@ export function MintWizard() {
                       onBack={back}
                     />
                   )}
-                  {state === 'active' && i === 2 && (
+                  {state === 'active' && i === 3 && (
                     <TreasuryStep
                       form={form}
                       onChange={setForm}
@@ -276,7 +300,7 @@ export function MintWizard() {
                       onBack={back}
                     />
                   )}
-                  {state === 'active' && i === 3 && (
+                  {state === 'active' && i === 4 && (
                     <MemWalStep
                       form={form}
                       onChange={setForm}
@@ -284,9 +308,10 @@ export function MintWizard() {
                       onBack={back}
                     />
                   )}
-                  {state === 'active' && i === 4 && (
+                  {state === 'active' && i === 5 && (
                     <MintStep
                       form={form}
+                      strategy={selected}
                       account={account?.address}
                       onSubmit={performMint}
                       onBack={back}
@@ -337,6 +362,20 @@ export function MintWizard() {
             </p>
           )}
 
+          {selected && (
+            <>
+              <hr className="divider-dashed my-5" />
+              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+                <CodeTag>hired</CodeTag>
+              </p>
+              <p className="mt-2 font-display text-sm font-semibold">{selected.name}</p>
+              <p className="mt-1 font-mono text-[11px] text-ink-mute">
+                {RISK_LABEL[selected.riskProfile]} ·{' '}
+                {(selected.royaltyBps / 100).toFixed(1)}% royalty
+              </p>
+            </>
+          )}
+
           {mintResult && (
             <>
               <hr className="divider-dashed my-5" />
@@ -372,8 +411,136 @@ export function MintWizard() {
 }
 
 // ============================================================================
-// Step bodies
+// Steps
 // ============================================================================
+
+function StrategyStep({
+  strategies,
+  loading,
+  selectedId,
+  onSelect,
+  onAdvance,
+  onBack,
+}: {
+  strategies: LiveStrategy[];
+  loading: boolean;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+  onAdvance: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      className="mt-4 grid gap-3 rounded-sm border border-divider bg-paper p-4"
+    >
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-mute">
+          {loading
+            ? 'Loading marketplace…'
+            : `${strategies.length} active strateg${strategies.length === 1 ? 'y' : 'ies'}`}
+        </p>
+        <Link
+          href="/marketplace"
+          className="font-mono text-[11px] text-accent-blue hover:underline"
+          target="_blank"
+          rel="noreferrer"
+        >
+          browse full marketplace →
+        </Link>
+      </div>
+      {!loading && strategies.length === 0 && (
+        <p className="rounded-sm border-l-2 border-accent-orange bg-paper-strong p-3 font-mono text-[11px] text-ink-soft">
+          No strategies published yet. Run{' '}
+          <code>npx tsx scripts/seed-strategies.ts</code> to seed the defaults, or visit{' '}
+          <Link href="/marketplace" className="text-accent-blue underline">
+            /marketplace
+          </Link>{' '}
+          to publish one.
+        </p>
+      )}
+      <div className="grid gap-2">
+        {strategies.map((s) => (
+          <StrategyOption
+            key={s.id}
+            strategy={s}
+            selected={s.id === selectedId}
+            onSelect={() => onSelect(s.id)}
+          />
+        ))}
+      </div>
+      <div className="flex items-center gap-3 pt-2">
+        <button
+          className="btn-flat"
+          data-variant="primary"
+          onClick={onAdvance}
+          disabled={!selectedId}
+        >
+          Continue
+        </button>
+        <button className="btn-flat" data-variant="ghost" onClick={onBack}>
+          Back
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+function StrategyOption({
+  strategy,
+  selected,
+  onSelect,
+}: {
+  strategy: LiveStrategy;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const netAlpha =
+    strategy.cumulativeAlphaBpsPos - strategy.cumulativeAlphaBpsNeg;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`group grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-sm border-2 px-3 py-2.5 text-left transition ${
+        selected
+          ? 'border-ink bg-paper-strong shadow-[3px_3px_0_0_var(--ink)]'
+          : 'border-divider bg-paper hover:border-ink'
+      }`}
+    >
+      <span
+        className="h-3 w-3 rounded-full border border-ink"
+        style={{ backgroundColor: selected ? 'var(--ink)' : 'transparent' }}
+      />
+      <div>
+        <p className="font-display text-sm font-semibold">{strategy.name}</p>
+        <p className="mt-0.5 line-clamp-1 text-xs text-ink-soft">{strategy.description}</p>
+        <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-mute">
+          {RISK_LABEL[strategy.riskProfile]} · royalty {(strategy.royaltyBps / 100).toFixed(1)}% ·
+          v{strategy.version.toString()} · {strategy.activeVaultCount.toString()}/
+          {strategy.vaultCount.toString()} vaults
+          {strategy.totalTicksRecorded > 0n && (
+            <> · α {netAlpha >= 0n ? '+' : ''}{netAlpha.toString()}bps</>
+          )}
+        </p>
+      </div>
+      <span
+        className="rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em]"
+        style={{
+          backgroundColor:
+            strategy.riskProfile === 0
+              ? 'var(--accent-green)'
+              : strategy.riskProfile === 1
+                ? 'var(--accent-blue)'
+                : 'var(--accent-orange)',
+        }}
+      >
+        {RISK_LABEL[strategy.riskProfile]}
+      </span>
+    </button>
+  );
+}
 
 function PolicyStep({
   form,
@@ -518,7 +685,12 @@ function MemWalStep({
         Skip — no memory
       </label>
       <div className="flex items-center gap-3 pt-2">
-        <button className="btn-flat" data-variant="primary" onClick={onAdvance} disabled={!canContinue}>
+        <button
+          className="btn-flat"
+          data-variant="primary"
+          onClick={onAdvance}
+          disabled={!canContinue}
+        >
           Continue
         </button>
         <button className="btn-flat" data-variant="ghost" onClick={onBack}>
@@ -531,6 +703,7 @@ function MemWalStep({
 
 function MintStep({
   form,
+  strategy,
   account,
   onSubmit,
   onBack,
@@ -538,6 +711,7 @@ function MintStep({
   result,
 }: {
   form: MintForm;
+  strategy: LiveStrategy | null;
   account?: string;
   onSubmit: () => void;
   onBack: () => void;
@@ -552,6 +726,14 @@ function MintStep({
       className="mt-4 grid gap-3 rounded-sm border border-divider bg-paper p-4"
     >
       <SummaryRow label="Owner" value={account ?? '— not connected —'} />
+      <SummaryRow
+        label="Strategy"
+        value={strategy ? `${strategy.name} (v${strategy.version})` : '— not picked —'}
+      />
+      <SummaryRow
+        label="Royalty"
+        value={strategy ? `${(strategy.royaltyBps / 100).toFixed(1)}% of perf fee` : '—'}
+      />
       <SummaryRow label="Spend cap" value={`${form.spendPct.toFixed(1)}% per epoch`} />
       <SummaryRow label="Expiry" value={`${form.expiryDays} epochs from now`} />
       <SummaryRow label="Funding" value={`${form.fundingSui.toFixed(3)} SUI`} />
@@ -588,7 +770,7 @@ function MintStep({
           className="btn-flat"
           data-variant="accent"
           onClick={onSubmit}
-          disabled={pending || !account || result !== null}
+          disabled={pending || !account || !strategy || result !== null}
         >
           {pending ? (
             <span className="flex items-center gap-2">

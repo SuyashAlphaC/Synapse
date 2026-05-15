@@ -21,6 +21,8 @@ import { synapseTarget } from './synapse-config';
 export const SUI_COIN_TYPE_TAG = '0x2::sui::SUI';
 
 export interface MintAgentParams {
+  /** ID of the published Strategy this vault is being minted against. */
+  strategyId: string;
   /** Address of the agent's ephemeral session key. */
   sessionAddr: string;
   /** Epoch the agent expires at. Must be strictly greater than current epoch. */
@@ -58,6 +60,7 @@ export function buildMintPTB(params: MintAgentParams): Transaction {
   const identity = tx.moveCall({
     target: synapseTarget('agent', 'new'),
     arguments: [
+      tx.object(params.strategyId),
       tx.pure.address(params.sessionAddr),
       tx.pure.u64(params.expiryEpoch),
       tx.pure.u64(params.spendPerEpochMist),
@@ -83,11 +86,11 @@ export function buildMintPTB(params: MintAgentParams): Transaction {
 }
 
 /** Build the revoke PTB against a known AgentIdentity object ID. */
-export function buildRevokePTB(agentId: string): Transaction {
+export function buildRevokePTB(args: { agentId: string; strategyId: string }): Transaction {
   const tx = new Transaction();
   tx.moveCall({
     target: synapseTarget('agent', 'revoke'),
-    arguments: [tx.object(agentId)],
+    arguments: [tx.object(args.agentId), tx.object(args.strategyId)],
   });
   return tx;
 }

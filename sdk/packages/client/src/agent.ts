@@ -20,6 +20,7 @@ import type { MintAgentInput } from './types.js';
 /**
  * Append `synapse_core::agent::new(...)` to `tx`. Returns the hot-potato
  * AgentIdentity handle that downstream calls (`fund`, `share`) consume.
+ * The vault is bound to `input.strategyId` from the marketplace registry.
  */
 export function newAgent(
   tx: Transaction,
@@ -29,6 +30,7 @@ export function newAgent(
   return tx.moveCall({
     target: target(packageId, 'agent', 'new'),
     arguments: [
+      tx.object(input.strategyId),
       tx.pure.address(input.sessionAddr),
       tx.pure.u64(input.expiryEpoch),
       tx.pure.u64(input.spendPerEpoch),
@@ -103,11 +105,63 @@ export function shareAgent(
 export function revokeAgent(
   tx: Transaction,
   packageId: string,
-  agentId: string,
+  args: { agentId: string; strategyId: string },
 ): TransactionResult {
   return tx.moveCall({
     target: target(packageId, 'agent', 'revoke'),
-    arguments: [tx.object(agentId)],
+    arguments: [tx.object(args.agentId), tx.object(args.strategyId)],
+  });
+}
+
+/**
+ * Append `synapse_core::agent::record_tick_performance(...)`. Splits realized
+ * alpha into positive and negative bps so the on-chain reputation counters
+ * stay as unsigned `u128` sums. Session-key authorized.
+ */
+export function recordTickPerformance(
+  tx: Transaction,
+  packageId: string,
+  args: {
+    agentId: string;
+    strategyId: string;
+    alphaBpsPos: bigint;
+    alphaBpsNeg: bigint;
+  },
+): TransactionResult {
+  return tx.moveCall({
+    target: target(packageId, 'agent', 'record_tick_performance'),
+    arguments: [
+      tx.object(args.agentId),
+      tx.object(args.strategyId),
+      tx.pure.u64(args.alphaBpsPos),
+      tx.pure.u64(args.alphaBpsNeg),
+    ],
+  });
+}
+
+/**
+ * Append `synapse_core::agent::pay_strategist_royalty<T>(...)`. Pays the
+ * strategist `profit_amount * royalty_bps / 10_000` out of the vault treasury
+ * in coin type `T`. Session-key authorized.
+ */
+export function payStrategistRoyalty(
+  tx: Transaction,
+  packageId: string,
+  args: {
+    agentId: string;
+    strategyId: string;
+    coinTypeTag: string;
+    profitAmount: bigint;
+  },
+): TransactionResult {
+  return tx.moveCall({
+    target: target(packageId, 'agent', 'pay_strategist_royalty'),
+    typeArguments: [args.coinTypeTag],
+    arguments: [
+      tx.object(args.agentId),
+      tx.object(args.strategyId),
+      tx.pure.u64(args.profitAmount),
+    ],
   });
 }
 

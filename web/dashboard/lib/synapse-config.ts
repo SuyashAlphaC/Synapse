@@ -18,15 +18,15 @@ export const NETWORK = (process.env['NEXT_PUBLIC_SYNAPSE_NETWORK'] as Network) ?
 
 /**
  * Sui Move package ID for `synapse_core`.
- * Testnet deployment, May 2026.
+ * Testnet deployment, May 2026 — marketplace + reputation revision.
  */
 export const SYNAPSE_PACKAGE_ID =
   process.env['NEXT_PUBLIC_SYNAPSE_PACKAGE_ID'] ??
-  '0x70db8ce760ac41322284f1fab73016438639e4f5ab5ae2ad6f5362cb3f50ec16';
+  '0x7b3f59e42edbf2189df644e63162d0b9a2c2984755bab9d3e9557c4ddd4aa67c';
 
 /** UpgradeCap object ID — kept here for traceability, not used at runtime. */
 export const SYNAPSE_UPGRADE_CAP =
-  '0x523919c8fa8d7d356c016749cf0df268c385c83b1194c0930c9167056b448e4d';
+  '0x12d4f7b948f2433b2332b63955290ebfec5d674779fb3006c4c9ce831ad48563';
 
 /**
  * Optional hosted indexer GraphQL endpoint. When set, the audit timeline +
@@ -81,7 +81,8 @@ export function synapseTarget(
     | 'coordination'
     | 'messaging_bridge'
     | 'attestation'
-    | 'deepbook_adapter',
+    | 'deepbook_adapter'
+    | 'strategy_registry',
   fn: string,
 ): `${string}::${string}::${string}` {
   return `${SYNAPSE_PACKAGE_ID}::${module}::${fn}` as `${string}::${string}::${string}`;

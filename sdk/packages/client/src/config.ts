@@ -69,6 +69,7 @@ export const SYNAPSE_MODULES = {
   messagingBridge: 'messaging_bridge',
   attestation: 'attestation',
   deepbookAdapter: 'deepbook_adapter',
+  strategyRegistry: 'strategy_registry',
 } as const;
 
 export type SynapseModuleKey = keyof typeof SYNAPSE_MODULES;

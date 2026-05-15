@@ -100,7 +100,10 @@ export function DashboardShell() {
           <PolicyPanel {...(live ? { live } : {})} />
           {liveVault && <SessionKeyPanel vaultId={liveVault.agentId} />}
           {liveVault && <ArtifactsPanel vaultId={liveVault.agentId} />}
-          <DangerZone {...(liveVault ? { vaultId: liveVault.agentId } : {})} />
+          <DangerZone
+            {...(liveVault ? { vaultId: liveVault.agentId } : {})}
+            {...(live?.identity.strategyId ? { strategyId: live.identity.strategyId } : {})}
+          />
         </div>
       </div>
     </>

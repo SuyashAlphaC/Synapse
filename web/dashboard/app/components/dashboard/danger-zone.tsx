@@ -21,6 +21,8 @@ interface DangerZoneProps {
    * message rather than mock-firing.
    */
   vaultId?: string;
+  /** Strategy this vault was minted against — required by `agent::revoke`. */
+  strategyId?: string;
 }
 
 /**
@@ -28,7 +30,7 @@ interface DangerZoneProps {
  * provided this constructs an actual `agent::revoke` PTB and signs it via
  * the connected wallet — no simulation. Tx digest links out to suiscan.
  */
-export function DangerZone({ vaultId }: DangerZoneProps) {
+export function DangerZone({ vaultId, strategyId }: DangerZoneProps) {
   const account = useCurrentAccount();
   const suiClient = useSuiClient();
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
@@ -42,7 +44,7 @@ export function DangerZone({ vaultId }: DangerZoneProps) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   async function performRevoke() {
-    if (!vaultId) {
+    if (!vaultId || !strategyId) {
       toast.push({
         variant: 'warn',
         title: 'No live vault to revoke',
@@ -62,7 +64,7 @@ export function DangerZone({ vaultId }: DangerZoneProps) {
     setPhase('submitting');
     setErrorMsg(null);
     try {
-      const tx = buildRevokePTB(vaultId);
+      const tx = buildRevokePTB({ agentId: vaultId, strategyId });
       toast.push({
         variant: 'info',
         title: 'Approve revoke PTB in your wallet',

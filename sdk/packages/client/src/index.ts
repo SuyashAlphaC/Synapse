@@ -7,6 +7,7 @@
  *   - `session-key`   Ephemeral Sui keypair generation for agents
  *   - `zklogin`       Google OAuth → ephemeral key → zkLogin proof flow
  *   - `agent`         PTB builders for `synapse_core::agent`
+ *   - `strategy`      PTB builders for `synapse_core::strategy_registry`
  *   - `wallet`        PTB builders for `synapse_core::wallet`
  *   - `artifacts`     Walrus upload + on-chain artifact registration
  *   - `walrus`        Direct Walrus blob client wrapper
@@ -18,6 +19,7 @@ export * from './config.js';
 export * from './session-key.js';
 export * from './zklogin.js';
 export * from './agent.js';
+export * from './strategy.js';
 export * from './wallet.js';
 export * from './artifacts.js';
 export * from './walrus.js';

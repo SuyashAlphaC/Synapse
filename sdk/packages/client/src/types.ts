@@ -61,6 +61,85 @@ export interface AgentIdentity {
   messagingOutbox: string | null;
   /** Soft-kill switch. Once true, all session-key actions abort. */
   revoked: boolean;
+  /** Strategy registry ID this vault was minted against. */
+  strategyId: string;
+}
+
+// =============================================================================
+// Strategy marketplace types (from strategy_registry.move)
+// =============================================================================
+
+export const RiskProfile = {
+  Conservative: 0,
+  Balanced: 1,
+  Aggressive: 2,
+} as const;
+
+export type RiskProfileValue = (typeof RiskProfile)[keyof typeof RiskProfile];
+
+/**
+ * On-chain `Strategy` object — the marketplace's catalog entry plus its
+ * lifetime reputation. Mirrors `synapse_core::strategy_registry::Strategy`.
+ */
+export interface Strategy {
+  id: string;
+  strategist: string;
+  name: string;
+  description: string;
+  /** 32-byte commitment to the runtime code (hex-encoded with 0x prefix). */
+  codeHash: string;
+  /** Walrus blob ID of the source / docs (UTF-8 decoded). */
+  sourceWalrusBlob: string;
+  riskProfile: RiskProfileValue;
+  royaltyBps: number;
+  version: bigint;
+  publishedAtEpoch: bigint;
+  active: boolean;
+  vaultCount: bigint;
+  activeVaultCount: bigint;
+  totalAumCommitted: bigint;
+  totalTicksRecorded: bigint;
+  cumulativeAlphaBpsPos: bigint;
+  cumulativeAlphaBpsNeg: bigint;
+  revocations: bigint;
+  totalRoyaltyPaid: bigint;
+  lastUpdateEpoch: bigint;
+}
+
+export interface StrategyPublishedEvent {
+  strategyId: string;
+  strategist: string;
+  name: string;
+  codeHash: Uint8Array;
+  riskProfile: number;
+  royaltyBps: number;
+}
+
+export interface VaultAdoptedEvent {
+  strategyId: string;
+  vaultId: string;
+  aumCommitted: bigint;
+}
+
+export interface VaultRevokedFromStrategyEvent {
+  strategyId: string;
+  vaultId: string;
+}
+
+export interface TickRecordedEvent {
+  strategyId: string;
+  vaultId: string;
+  alphaBpsPos: bigint;
+  alphaBpsNeg: bigint;
+  epoch: bigint;
+}
+
+export interface RoyaltyPaidEvent {
+  strategyId: string;
+  vaultId: string;
+  strategist: string;
+  amount: bigint;
+  coinType: string;
 }
 
 /**
@@ -95,6 +174,7 @@ export interface AgentMintedEvent {
   expiryEpoch: bigint;
   spendPerEpoch: bigint;
   memwalNamespace: Uint8Array;
+  strategyId: string;
 }
 
 export interface AgentRevokedEvent {
@@ -278,6 +358,14 @@ export const SynapseErrorCode = {
   InvalidExpiry: 9,
   ZeroSpend: 10,
   MessagingAlreadySet: 11,
+  StrategyMismatch: 12,
+  InsufficientBalance: 13,
+  // strategy_registry.move (50–69)
+  StrategyNotStrategist: 50,
+  StrategyBadRiskProfile: 51,
+  StrategyInactive: 52,
+  StrategyEmptyName: 53,
+  StrategyMaxRoyaltyExceeded: 54,
   // wallet.move (100–199)
   InsufficientFunds: 100,
   TokenNotFound: 101,
@@ -354,6 +442,8 @@ export type AgentIdentityHotPotato = SuiObjectRef;
  * for binary fields and arrays of strings for `approvedPackages`.
  */
 export interface MintAgentInput {
+  /** ID of a published `Strategy` to bind this vault to. */
+  strategyId: string;
   sessionAddr: string;
   expiryEpoch: bigint;
   spendPerEpoch: bigint;

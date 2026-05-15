@@ -17,7 +17,10 @@ module synapse_core::agent;
 
 use std::type_name::{Self, TypeName};
 use sui::bag::{Self, Bag};
+use sui::balance;
+use sui::coin;
 use sui::event;
+use synapse_core::strategy_registry::{Self, Strategy};
 
 // === Error codes ===
 
@@ -31,6 +34,8 @@ const EAlreadyRevoked: u64 = 8;
 const EInvalidExpiry: u64 = 9;
 const EZeroSpend: u64 = 10;
 const EMessagingAlreadySet: u64 = 11;
+const EStrategyMismatch: u64 = 12;
+const EInsufficientBalance: u64 = 13;
 
 // === Events ===
 
@@ -42,6 +47,7 @@ public struct AgentMintedEvent has copy, drop {
     expiry_epoch: u64,
     spend_per_epoch: u64,
     memwal_namespace: vector<u8>,
+    strategy_id: ID,
 }
 
 /// Emitted by `revoke`. Off-chain indexer subscribes and calls MemWal delegate
@@ -107,15 +113,22 @@ public struct AgentIdentity has key {
     // --- Sui Stack Messaging ---
     messaging_inbox: Option<ID>,
     messaging_outbox: Option<ID>,
+    // --- Strategy linkage (marketplace) ---
+    strategy_id: ID,
 }
 
 // === Public lifecycle (PTB-chainable) ===
 
-/// Construct a fresh AgentIdentity. The returned object is a hot potato —
-/// the caller MUST consume it via `share` (or destroy it explicitly) in the
-/// same PTB. The session keypair is generated client-side; only the address
-/// is committed on-chain.
+/// Construct a fresh AgentIdentity bound to a published `Strategy`. The
+/// returned object is a hot potato — the caller MUST consume it via `share`
+/// (or destroy it explicitly) in the same PTB. The session keypair is
+/// generated client-side; only the address is committed on-chain.
+///
+/// The strategy reference is mutated to increment its adoption counters
+/// (`vault_count`, `active_vault_count`). Adopting an inactive strategy
+/// aborts inside `strategy_registry::record_vault_minted`.
 public fun new(
+    strategy: &mut Strategy,
     session_addr: address,
     expiry_epoch: u64,
     spend_per_epoch: u64,
@@ -129,8 +142,13 @@ public fun new(
     assert!(expiry_epoch > current_epoch, EInvalidExpiry);
     assert!(spend_per_epoch > 0, EZeroSpend);
 
+    let uid = object::new(ctx);
+    let vault_id = uid.to_inner();
+    let strategy_id = strategy_registry::strategy_id(strategy);
+    strategy_registry::record_vault_minted(strategy, vault_id, 0, ctx);
+
     AgentIdentity {
-        id: object::new(ctx),
+        id: uid,
         owner: ctx.sender(),
         session_addr,
         expiry_epoch,
@@ -147,6 +165,7 @@ public fun new(
         artifact_count: 0,
         messaging_inbox: option::none(),
         messaging_outbox: option::none(),
+        strategy_id,
     }
 }
 
@@ -182,6 +201,7 @@ public fun share(identity: AgentIdentity) {
     let expiry_epoch = identity.expiry_epoch;
     let spend_per_epoch = identity.spend_per_epoch;
     let memwal_namespace = identity.memwal_namespace;
+    let strategy_id = identity.strategy_id;
 
     transfer::share_object(identity);
 
@@ -192,6 +212,7 @@ public fun share(identity: AgentIdentity) {
         expiry_epoch,
         spend_per_epoch,
         memwal_namespace,
+        strategy_id,
     });
 }
 
@@ -217,16 +238,28 @@ public fun fund<T>(identity: &mut AgentIdentity, coin: sui::coin::Coin<T>) {
 
 // === Owner-only governance entry points ===
 
-/// Atomic kill switch. Flips the revocation flag and emits an event the
-/// off-chain indexer uses to fan out MemWal delegate revocation + Walrus
-/// eviction signaling. Idempotent guard prevents double-emission.
-public fun revoke(identity: &mut AgentIdentity, ctx: &TxContext) {
+/// Atomic kill switch. Flips the revocation flag, decrements the strategy's
+/// active vault counter, and emits an event the off-chain indexer uses to
+/// fan out MemWal delegate revocation + Walrus eviction signaling.
+/// Idempotent guard prevents double-emission.
+public fun revoke(
+    identity: &mut AgentIdentity,
+    strategy: &mut Strategy,
+    ctx: &TxContext,
+) {
     assert!(ctx.sender() == identity.owner, ENotOwner);
     assert!(!identity.revoked, EAlreadyRevoked);
+    assert!(
+        strategy_registry::strategy_id(strategy) == identity.strategy_id,
+        EStrategyMismatch,
+    );
     identity.revoked = true;
 
+    let vault_id = identity.id.to_inner();
+    strategy_registry::record_vault_revoked(strategy, vault_id, ctx);
+
     event::emit(AgentRevokedEvent {
-        agent_id: identity.id.to_inner(),
+        agent_id: vault_id,
         owner: identity.owner,
         memwal_delegate_key_id: identity.memwal_delegate_key_id,
         revoked_at_epoch: ctx.epoch(),
@@ -309,6 +342,79 @@ public fun remove_approved_package(
     };
 }
 
+// === Marketplace (strategy-linked) actions ===
+
+/// Record per-tick performance alpha on the linked strategy. Splits the
+/// alpha signal into two u64 buckets (`pos` and `neg`) so the strategy
+/// counters can stay as unsigned `u128` sums. Session-authorized.
+public fun record_tick_performance(
+    identity: &AgentIdentity,
+    strategy: &mut Strategy,
+    alpha_bps_pos: u64,
+    alpha_bps_neg: u64,
+    ctx: &TxContext,
+) {
+    assert_can_act(identity, ctx);
+    assert!(
+        strategy_registry::strategy_id(strategy) == identity.strategy_id,
+        EStrategyMismatch,
+    );
+    strategy_registry::record_tick(
+        strategy,
+        identity.id.to_inner(),
+        alpha_bps_pos,
+        alpha_bps_neg,
+        ctx,
+    );
+}
+
+/// Pay the strategist their royalty share out of the vault's treasury,
+/// in the same coin type the profit was realized in. Session-authorized.
+///
+/// `profit_amount` is the gross profit (in coin minor units) on which the
+/// royalty is computed: payout = profit_amount * royalty_bps / 10_000.
+/// Royalties do NOT count against the per-epoch spend cap (they are a
+/// protocol-internal transfer to a registered strategist, not an external
+/// call to an allowlisted contract).
+public fun pay_strategist_royalty<T>(
+    identity: &mut AgentIdentity,
+    strategy: &mut Strategy,
+    profit_amount: u64,
+    ctx: &mut TxContext,
+) {
+    assert_can_act(identity, ctx);
+    assert!(
+        strategy_registry::strategy_id(strategy) == identity.strategy_id,
+        EStrategyMismatch,
+    );
+
+    let royalty_bps = strategy_registry::royalty_bps(strategy);
+    if (royalty_bps == 0 || profit_amount == 0) return;
+
+    let royalty: u64 =
+        (((profit_amount as u128) * (royalty_bps as u128) / 10_000u128) as u64);
+    if (royalty == 0) return;
+
+    let token_type = type_name::with_defining_ids<T>();
+    assert!(
+        identity.treasury.contains_with_type<TypeName, balance::Balance<T>>(token_type),
+        EInsufficientBalance,
+    );
+    let bal: &mut balance::Balance<T> = identity.treasury.borrow_mut(token_type);
+    assert!(bal.value() >= royalty, EInsufficientBalance);
+
+    let payout_balance = bal.split(royalty);
+    let payout_coin = coin::from_balance(payout_balance, ctx);
+    let strategist = strategy_registry::strategist(strategy);
+    transfer::public_transfer(payout_coin, strategist);
+
+    strategy_registry::record_royalty_paid<T>(
+        strategy,
+        identity.id.to_inner(),
+        royalty,
+    );
+}
+
 // === Read-only accessors ===
 
 public fun owner(identity: &AgentIdentity): address { identity.owner }
@@ -322,6 +428,8 @@ public fun spend_per_epoch(identity: &AgentIdentity): u64 { identity.spend_per_e
 public fun spent_this_epoch(identity: &AgentIdentity): u64 { identity.spent_this_epoch }
 
 public fun is_revoked(identity: &AgentIdentity): bool { identity.revoked }
+
+public fun strategy_id(identity: &AgentIdentity): ID { identity.strategy_id }
 
 public fun memwal_namespace(identity: &AgentIdentity): &vector<u8> { &identity.memwal_namespace }
 
