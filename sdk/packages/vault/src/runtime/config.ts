@@ -29,6 +29,12 @@ export interface RuntimeConfig {
   maxConsecutiveFailures?: number;
   /** Walrus storage epochs for audit reports. Default 5. */
   walrusEpochs?: number;
+  /**
+   * Optional JSON override mapping `Strategy` object IDs to runtime slugs.
+   * Wired through `SYNAPSE_STRATEGY_REGISTRY_JSON`. Lets operators teach the
+   * runtime about newly-published strategies without recompiling.
+   */
+  strategyRegistryJson?: string;
 }
 
 export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -70,6 +76,9 @@ export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig
       : {}),
     ...(env.SYNAPSE_MAX_FAILURES ? { maxConsecutiveFailures: Number(env.SYNAPSE_MAX_FAILURES) } : {}),
     ...(env.SYNAPSE_WALRUS_EPOCHS ? { walrusEpochs: Number(env.SYNAPSE_WALRUS_EPOCHS) } : {}),
+    ...(env.SYNAPSE_STRATEGY_REGISTRY_JSON
+      ? { strategyRegistryJson: env.SYNAPSE_STRATEGY_REGISTRY_JSON }
+      : {}),
   };
 }
 

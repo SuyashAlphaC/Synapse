@@ -20,6 +20,8 @@ import { deepbookSwap, DEEPBOOK_PACKAGE_ID_TESTNET } from './deepbook.js';
 import { loadSessionKeypair } from './keypair.js';
 import { createLogger, type VaultLogger } from './logger.js';
 import type { RuntimeConfig } from './config.js';
+import { resolveStrategy } from './strategy-resolver.js';
+import type { Strategy } from '../types.js';
 
 export type { RuntimeConfig } from './config.js';
 
@@ -130,9 +132,36 @@ export class VaultRuntime {
       return null;
     }
 
+    // Dispatch to the correct Strategy implementation based on the vault's
+    // on-chain `strategy_id`. Falls back to the runtime-configured default
+    // only when the ID is unknown (i.e., a brand-new marketplace strategy
+    // the resolver hasn't been taught about yet).
+    const { strategy, resolved, slug } = resolveStrategy({
+      strategyId: agent.identity.strategyId,
+      defaultStrategy: this.#config.strategy,
+      ...(this.#config.strategyRegistryJson !== undefined
+        ? { envOverrideJson: this.#config.strategyRegistryJson }
+        : {}),
+    });
+    if (!resolved) {
+      this.#logger.warn(
+        {
+          strategyId: agent.identity.strategyId,
+          fallback: this.#config.strategy.id,
+        },
+        'unknown on-chain strategy_id; falling back to runtime-configured strategy',
+      );
+    } else {
+      this.#logger.info(
+        { strategyId: agent.identity.strategyId, slug },
+        'dispatching to on-chain strategy',
+      );
+    }
+    const activeStrategy: Strategy = strategy;
+
     const market = await loadMarketSnapshot({
       client: this.#client,
-      pools: requiredPoolsForStrategy(this.#config.strategy),
+      pools: requiredPoolsForStrategy(activeStrategy),
       senderAddress: signer.toSuiAddress(),
     });
 
@@ -147,7 +176,7 @@ export class VaultRuntime {
       ? await recallStrategyMemory({
           client: memwal,
           namespace,
-          strategyId: this.#config.strategy.id,
+          strategyId: activeStrategy.id,
         })
       : emptyStrategyMemory();
 
@@ -163,11 +192,11 @@ export class VaultRuntime {
         spendPerEpochUsd: spendCapUsd(agent.identity.spendPerEpoch, holdings),
       },
     };
-    const decision = await this.#config.strategy.evaluate(input);
+    const decision = await activeStrategy.evaluate(input);
     const report = renderReport({
       vaultId: this.#config.agentId,
-      strategyId: this.#config.strategy.id,
-      strategyVersion: this.#config.strategy.version,
+      strategyId: activeStrategy.id,
+      strategyVersion: activeStrategy.version,
       epoch: currentEpoch,
       input,
       decision,

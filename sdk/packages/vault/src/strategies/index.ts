@@ -7,3 +7,9 @@
 
 export { conservativeRebalancer, CONSERVATIVE_REBALANCER_ID } from './conservative-rebalancer.js';
 export type { ConservativeRebalancerConfig } from './conservative-rebalancer.js';
+
+export { balancedYield, BALANCED_YIELD_ID } from './balanced-yield.js';
+export type { BalancedYieldConfig } from './balanced-yield.js';
+
+export { aggressiveMomentum, AGGRESSIVE_MOMENTUM_ID } from './aggressive-momentum.js';
+export type { AggressiveMomentumConfig } from './aggressive-momentum.js';
