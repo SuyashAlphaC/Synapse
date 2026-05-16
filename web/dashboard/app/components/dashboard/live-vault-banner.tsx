@@ -1,96 +1,182 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useCurrentAccount } from '@mysten/dapp-kit';
 import { CodeTag } from '../ui/code-tag';
-import { latestVaultFor, type LocalVaultRecord } from '@/lib/local-vaults';
+import { useOwnedVaults } from '../../hooks/use-owned-vaults';
+import type { OwnedVault } from '@/lib/owned-vaults';
+import type { LocalVaultRecord } from '@/lib/local-vaults';
 import { explorerObjectUrl } from '@/lib/synapse-config';
 import { shortenHash, timeAgo } from '@/lib/format';
 
 interface LiveVaultBannerProps {
-  /**
-   * Callback so the parent dashboard can wire the real vault ID into
-   * child components (Danger Zone, audit timeline filter, etc.).
-   */
+  /** Called whenever the active vault changes (or clears). */
   onVaultDetected?: (record: LocalVaultRecord | null) => void;
 }
 
 /**
- * Detects the connected wallet's most recently minted vault from local
- * storage and surfaces a banner above the demo dashboard. When found, the
- * dashboard wires real on-chain controls; when absent, the dashboard
- * remains read-only sample data with a clear "mint a vault to interact"
- * call-to-action.
+ * On-chain vault picker. Queries `AgentMintedEvent` against the active
+ * Synapse package, filters by the connected wallet, and surfaces every
+ * vault the wallet owns — independent of localStorage. When the wallet
+ * owns more than one, the user picks which to focus the dashboard on.
  */
 export function LiveVaultBanner({ onVaultDetected }: LiveVaultBannerProps) {
   const account = useCurrentAccount();
-  const [vault, setVault] = useState<LocalVaultRecord | null>(null);
+  const query = useOwnedVaults();
+  const owned = useMemo(() => query.data ?? [], [query.data]);
+  const [activeId, setActiveId] = useState<string | null>(null);
 
+  // Default to the newest vault unless the user picks a different one.
   useEffect(() => {
-    const next = account ? latestVaultFor(account.address) : null;
-    setVault(next);
-    onVaultDetected?.(next);
-  }, [account, onVaultDetected]);
+    if (!owned.length) {
+      setActiveId(null);
+      return;
+    }
+    if (activeId && owned.some((v) => v.agentId === activeId)) return;
+    setActiveId(owned[0]!.agentId);
+  }, [owned, activeId]);
+
+  // Bridge to the existing `LocalVaultRecord` consumer shape so the
+  // downstream dashboard components don't need to change.
+  useEffect(() => {
+    if (!activeId) {
+      onVaultDetected?.(null);
+      return;
+    }
+    const vault = owned.find((v) => v.agentId === activeId);
+    if (!vault) {
+      onVaultDetected?.(null);
+      return;
+    }
+    onVaultDetected?.(toLocalRecord(vault, account?.address ?? ''));
+  }, [activeId, owned, account, onVaultDetected]);
 
   if (!account) {
+    return <DisconnectedBanner />;
+  }
+  if (query.isLoading) {
     return (
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border-2 border-dashed border-ink-mute bg-paper-strong/60 px-5 py-3">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
-            <CodeTag>read-only</CodeTag>
-          </span>
-          <span className="font-display text-sm text-ink-soft">
-            Connect a wallet to enable on-chain controls. Demo data shown below.
-          </span>
-        </div>
-      </div>
+      <BannerShell tone="muted">
+        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+          <CodeTag>scanning</CodeTag>
+        </span>
+        <span className="font-display text-sm text-ink-soft">
+          Reading on-chain vaults owned by{' '}
+          <span className="font-mono text-[11px]">{shortenHash(account.address)}</span>…
+        </span>
+      </BannerShell>
     );
+  }
+  if (!owned.length) {
+    return <NoVaultBanner />;
   }
 
-  if (!vault) {
-    return (
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border-2 border-dashed border-ink-mute bg-paper-strong/60 px-5 py-3">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
-            <CodeTag>no live vault</CodeTag>
-          </span>
-          <span className="font-display text-sm text-ink-soft">
-            Mint your first vault to enable revoke and other on-chain actions.
-          </span>
-        </div>
-        <Link href="/mint" className="btn-flat" data-variant="primary">
-          Mint a vault →
-        </Link>
-      </div>
-    );
-  }
+  const active = owned.find((v) => v.agentId === activeId) ?? owned[0]!;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border-2 border-ink bg-paper-strong px-5 py-3 shadow-[2px_2px_0_0_var(--ink)]">
+    <BannerShell tone="live">
       <div className="flex flex-wrap items-center gap-4">
         <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-state-active">
           <CodeTag>live</CodeTag>
         </span>
         <div>
           <p className="font-display text-sm font-semibold text-ink">
-            On-chain controls wired to {shortenHash(vault.agentId)}
+            On-chain controls wired to {shortenHash(active.agentId)}
           </p>
           <p className="font-mono text-[11px] text-ink-mute">
-            minted {timeAgo(vault.mintedAtMs)} · session{' '}
-            {shortenHash(vault.sessionAddress)}
+            minted {active.mintedAtMs ? timeAgo(active.mintedAtMs) : 'recently'} · session{' '}
+            {shortenHash(active.sessionAddr)}
+            {active.strategyId
+              ? ` · strategy ${shortenHash(active.strategyId)}`
+              : ''}
           </p>
         </div>
       </div>
-      <a
-        href={explorerObjectUrl(vault.agentId)}
-        target="_blank"
-        rel="noreferrer"
-        className="btn-flat"
-        data-variant="ghost"
-      >
-        View on suiscan ↗
-      </a>
-    </div>
+      <div className="flex flex-wrap items-center gap-3">
+        {owned.length > 1 && (
+          <label className="inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-mute">
+            vault
+            <select
+              value={active.agentId}
+              onChange={(e) => setActiveId(e.target.value)}
+              className="rounded-sm border border-divider bg-paper-strong px-2 py-1.5 font-mono text-xs text-ink outline-none focus:border-ink"
+            >
+              {owned.map((v) => (
+                <option key={v.agentId} value={v.agentId}>
+                  {shortenHash(v.agentId)} ·{' '}
+                  {v.strategyId ? shortenHash(v.strategyId) : 'no strategy'}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <a
+          href={explorerObjectUrl(active.agentId)}
+          target="_blank"
+          rel="noreferrer"
+          className="btn-flat"
+          data-variant="ghost"
+        >
+          View on suiscan ↗
+        </a>
+      </div>
+    </BannerShell>
   );
+}
+
+function toLocalRecord(vault: OwnedVault, ownerAddress: string): LocalVaultRecord {
+  return {
+    agentId: vault.agentId,
+    ownerAddress,
+    digest: vault.mintDigest,
+    sessionAddress: vault.sessionAddr,
+    memwalAccountId: null,
+    mintedAtMs: vault.mintedAtMs,
+  };
+}
+
+function DisconnectedBanner() {
+  return (
+    <BannerShell tone="muted">
+      <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+        <CodeTag>read-only</CodeTag>
+      </span>
+      <span className="font-display text-sm text-ink-soft">
+        Connect a wallet to discover the vaults you own and enable on-chain controls.
+      </span>
+    </BannerShell>
+  );
+}
+
+function NoVaultBanner() {
+  return (
+    <BannerShell tone="muted">
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+          <CodeTag>no vaults</CodeTag>
+        </span>
+        <span className="font-display text-sm text-ink-soft">
+          This wallet hasn't minted any vault yet. Mint one to enable revoke + run-tick.
+        </span>
+      </div>
+      <Link href="/mint" className="btn-flat" data-variant="primary">
+        Mint a vault →
+      </Link>
+    </BannerShell>
+  );
+}
+
+function BannerShell({
+  tone,
+  children,
+}: {
+  tone: 'live' | 'muted';
+  children: React.ReactNode;
+}) {
+  const className =
+    tone === 'live'
+      ? 'flex flex-wrap items-center justify-between gap-3 rounded-md border-2 border-ink bg-paper-strong px-5 py-3 shadow-[2px_2px_0_0_var(--ink)]'
+      : 'flex flex-wrap items-center justify-between gap-3 rounded-md border-2 border-dashed border-ink-mute bg-paper-strong/60 px-5 py-3';
+  return <div className={className}>{children}</div>;
 }
