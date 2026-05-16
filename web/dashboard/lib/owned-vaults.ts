@@ -33,6 +33,7 @@ export async function loadOwnedVaults(args: {
 
   const out: OwnedVault[] = [];
   let cursor: { txDigest: string; eventSeq: string } | null = null;
+  const ownerNorm = normalizeAddress(args.owner);
 
   while (out.length < limit) {
     const page = await args.client.queryEvents({
@@ -51,9 +52,11 @@ export async function loadOwnedVaults(args: {
             expiry_epoch?: string | number;
           }
         | undefined;
-      if (!parsed) continue;
-      if (parsed.owner !== args.owner) continue;
-      if (!parsed.agent_id) continue;
+      if (!parsed?.owner || !parsed.agent_id) continue;
+      // Sui returns addresses in both short ("0xa758…") and padded
+      // ("0x0000…a758…") form depending on the codepath. Normalize both
+      // sides so a refresh after a fresh mint actually matches.
+      if (normalizeAddress(parsed.owner) !== ownerNorm) continue;
       out.push({
         agentId: parsed.agent_id,
         owner: parsed.owner,
@@ -71,4 +74,15 @@ export async function loadOwnedVaults(args: {
   }
   // Newest first.
   return out.sort((a, b) => b.mintedAtMs - a.mintedAtMs);
+}
+
+/**
+ * Canonicalize a Sui address for string comparison: lowercase, strip a
+ * leading `0x`, pad to 64 hex chars. Round-trips both short and padded
+ * forms to the same value.
+ */
+function normalizeAddress(addr: string): string {
+  const lower = addr.toLowerCase().trim();
+  const noPrefix = lower.startsWith('0x') ? lower.slice(2) : lower;
+  return noPrefix.padStart(64, '0');
 }

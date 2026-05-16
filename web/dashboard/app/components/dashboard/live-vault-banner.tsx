@@ -89,7 +89,8 @@ export function LiveVaultBanner({ onVaultDetected }: LiveVaultBannerProps) {
             {shortenHash(active.sessionAddr)}
             {active.strategyId
               ? ` · strategy ${shortenHash(active.strategyId)}`
-              : ''}
+              : ''}{' '}
+            · <span className="text-ink">{owned.length} vault{owned.length === 1 ? '' : 's'} owned</span>
           </p>
         </div>
       </div>
@@ -111,6 +112,16 @@ export function LiveVaultBanner({ onVaultDetected }: LiveVaultBannerProps) {
             </select>
           </label>
         )}
+        <button
+          type="button"
+          onClick={() => void query.refetch()}
+          disabled={query.isFetching}
+          className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-md border border-ink/15 bg-paper-strong px-2.5 font-mono text-[11px] text-ink-soft transition-colors hover:border-ink hover:text-ink disabled:opacity-50"
+          title="Re-query AgentMintedEvent for this wallet"
+        >
+          <RefreshIcon spinning={query.isFetching} />
+          {query.isFetching ? 'Refreshing…' : 'Refresh'}
+        </button>
         <a
           href={explorerObjectUrl(active.agentId)}
           target="_blank"
@@ -122,6 +133,34 @@ export function LiveVaultBanner({ onVaultDetected }: LiveVaultBannerProps) {
         </a>
       </div>
     </BannerShell>
+  );
+}
+
+function RefreshIcon({ spinning }: { spinning: boolean }) {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden
+      className={spinning ? 'animate-spin' : ''}
+    >
+      <path
+        d="M10.5 2.5v3h-3M1.5 9.5v-3h3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M2.5 6a3.5 3.5 0 0 1 6-2.5L10.5 5.5M9.5 6a3.5 3.5 0 0 1-6 2.5L1.5 6.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

@@ -12,7 +12,12 @@ export function useOwnedVaults(): UseQueryResult<OwnedVault[]> {
     queryKey: ['synapse-owned-vaults', owner],
     queryFn: () => (owner ? loadOwnedVaults({ client, owner }) : Promise.resolve([])),
     enabled: owner !== null,
-    staleTime: 15_000,
-    refetchOnWindowFocus: false,
+    // Always refetch when the dashboard mounts so a fresh navigation
+    // immediately after a mint surfaces the new vault. Also poll every
+    // 20s as a safety net for tabs that stay open across mints.
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchInterval: 20_000,
+    refetchOnWindowFocus: true,
   });
 }
