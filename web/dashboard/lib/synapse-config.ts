@@ -18,11 +18,20 @@ export const NETWORK = (process.env['NEXT_PUBLIC_SYNAPSE_NETWORK'] as Network) ?
 
 /**
  * Sui Move package ID for `synapse_core`.
- * Testnet deployment, May 2026 — marketplace + reputation revision.
+ * Testnet deployment, May 2026.
+ *  - v1 (`0x70db8ce7…`) — initial deploy
+ *  - v1 (`0x7b3f59e4…`) — strategy_registry + marketplace + reputation
+ *  - v2 (`0x5da36d89…`) — operational budget (set_operational_cap +
+ *    pull_operational_funds<T>) for vault-self-funding autonomy
+ *
+ * The active value below is the latest. Existing AgentIdentity objects
+ * minted under previous package versions remain readable because the
+ * upgrade kept the struct layout intact (new state lives in dynamic
+ * fields).
  */
 export const SYNAPSE_PACKAGE_ID =
   process.env['NEXT_PUBLIC_SYNAPSE_PACKAGE_ID'] ??
-  '0x7b3f59e42edbf2189df644e63162d0b9a2c2984755bab9d3e9557c4ddd4aa67c';
+  '0x5da36d892956a4659415e245126a3964dd5aa6cf19ec2fdf6332bf828a4c58ed';
 
 /** UpgradeCap object ID — kept here for traceability, not used at runtime. */
 export const SYNAPSE_UPGRADE_CAP =

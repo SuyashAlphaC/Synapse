@@ -432,6 +432,108 @@ fun cannot_mint_against_deprecated_strategy() {
     ts::end(scenario);
 }
 
+// === Operational budget tests ===
+
+#[test]
+fun operational_pull_within_cap_succeeds() {
+    let mut scenario = ts::begin(HUMAN);
+    let (strategy_id, _cap_id) = publish_fixture_strategy(&mut scenario);
+    let mut strategy: Strategy = ts::take_shared_by_id<Strategy>(&scenario, strategy_id);
+
+    let mut identity =
+        mint_agent_against(&mut scenario, &mut strategy, AGENT_SESSION, 1000, 10, b"ns");
+    fund_with_sui(&mut identity, 1_000_000, &mut scenario);
+
+    // Owner sets a 100k operational cap.
+    agent::set_operational_cap(&mut identity, 100_000, ts::ctx(&mut scenario));
+    assert!(agent::operational_cap(&identity) == 100_000, 0);
+    assert!(agent::operational_spent_this_epoch(&identity) == 0, 1);
+
+    // Session pulls 40k → succeeds, cap counter advances.
+    ts::next_tx(&mut scenario, AGENT_SESSION);
+    let coin1 =
+        agent::pull_operational_funds<SUI>(&mut identity, 40_000, ts::ctx(&mut scenario));
+    assert!(coin1.value() == 40_000, 2);
+    assert!(agent::operational_spent_this_epoch(&identity) == 40_000, 3);
+    test_utils::destroy(coin1);
+
+    // Same epoch, another 30k → still within 100k cap.
+    let coin2 =
+        agent::pull_operational_funds<SUI>(&mut identity, 30_000, ts::ctx(&mut scenario));
+    assert!(coin2.value() == 30_000, 4);
+    assert!(agent::operational_spent_this_epoch(&identity) == 70_000, 5);
+    test_utils::destroy(coin2);
+
+    // Cleanup
+    ts::next_tx(&mut scenario, HUMAN);
+    agent::revoke(&mut identity, &mut strategy, ts::ctx(&mut scenario));
+    test_utils::destroy(identity);
+    ts::return_shared(strategy);
+    ts::end(scenario);
+}
+
+#[test]
+#[expected_failure(abort_code = synapse_core::agent::EOpBudgetExceeded)]
+fun operational_pull_above_cap_aborts() {
+    let mut scenario = ts::begin(HUMAN);
+    let (strategy_id, _cap_id) = publish_fixture_strategy(&mut scenario);
+    let mut strategy: Strategy = ts::take_shared_by_id<Strategy>(&scenario, strategy_id);
+
+    let mut identity =
+        mint_agent_against(&mut scenario, &mut strategy, AGENT_SESSION, 1000, 10, b"ns");
+    fund_with_sui(&mut identity, 1_000_000, &mut scenario);
+
+    agent::set_operational_cap(&mut identity, 50_000, ts::ctx(&mut scenario));
+
+    ts::next_tx(&mut scenario, AGENT_SESSION);
+    let coin =
+        agent::pull_operational_funds<SUI>(&mut identity, 60_000, ts::ctx(&mut scenario));
+    test_utils::destroy(coin);
+    test_utils::destroy(identity);
+    ts::return_shared(strategy);
+    ts::end(scenario);
+}
+
+#[test]
+#[expected_failure(abort_code = synapse_core::agent::EOpBudgetUnset)]
+fun operational_pull_without_cap_aborts() {
+    let mut scenario = ts::begin(HUMAN);
+    let (strategy_id, _cap_id) = publish_fixture_strategy(&mut scenario);
+    let mut strategy: Strategy = ts::take_shared_by_id<Strategy>(&scenario, strategy_id);
+
+    let mut identity =
+        mint_agent_against(&mut scenario, &mut strategy, AGENT_SESSION, 1000, 10, b"ns");
+    fund_with_sui(&mut identity, 1_000_000, &mut scenario);
+
+    // No set_operational_cap call — pull should abort EOpBudgetUnset.
+    ts::next_tx(&mut scenario, AGENT_SESSION);
+    let coin =
+        agent::pull_operational_funds<SUI>(&mut identity, 10_000, ts::ctx(&mut scenario));
+    test_utils::destroy(coin);
+    test_utils::destroy(identity);
+    ts::return_shared(strategy);
+    ts::end(scenario);
+}
+
+#[test]
+#[expected_failure(abort_code = synapse_core::agent::ENotOwner)]
+fun non_owner_set_operational_cap_aborts() {
+    let mut scenario = ts::begin(HUMAN);
+    let (strategy_id, _cap_id) = publish_fixture_strategy(&mut scenario);
+    let mut strategy: Strategy = ts::take_shared_by_id<Strategy>(&scenario, strategy_id);
+
+    let mut identity =
+        mint_agent_against(&mut scenario, &mut strategy, AGENT_SESSION, 1000, 10, b"ns");
+
+    // Session (not owner) tries to set the operational cap.
+    ts::next_tx(&mut scenario, AGENT_SESSION);
+    agent::set_operational_cap(&mut identity, 50_000, ts::ctx(&mut scenario));
+
+    test_utils::destroy(identity);
+    ts::return_shared(strategy);
+    ts::end(scenario);
+}
+
 #[test]
 #[expected_failure(abort_code = synapse_core::strategy_registry::EMaxRoyaltyExceeded)]
 fun publishing_strategy_with_royalty_above_cap_aborts() {

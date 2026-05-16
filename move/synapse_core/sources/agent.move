@@ -19,6 +19,7 @@ use std::type_name::{Self, TypeName};
 use sui::bag::{Self, Bag};
 use sui::balance;
 use sui::coin;
+use sui::dynamic_field as df;
 use sui::event;
 use synapse_core::strategy_registry::{Self, Strategy};
 
@@ -36,6 +37,8 @@ const EZeroSpend: u64 = 10;
 const EMessagingAlreadySet: u64 = 11;
 const EStrategyMismatch: u64 = 12;
 const EInsufficientBalance: u64 = 13;
+const EOpBudgetUnset: u64 = 14;
+const EOpBudgetExceeded: u64 = 15;
 
 // === Events ===
 
@@ -87,6 +90,38 @@ public struct MessagingAttachedEvent has copy, drop {
     inbox: ID,
     outbox: ID,
 }
+
+/// Owner set or updated the per-epoch cap on operational pulls.
+public struct OperationalCapSetEvent has copy, drop {
+    agent_id: ID,
+    new_cap: u64,
+    epoch: u64,
+}
+
+/// Session pulled operational funds from the treasury.
+public struct OperationalFundsPulledEvent has copy, drop {
+    agent_id: ID,
+    coin_type: TypeName,
+    amount: u64,
+    remaining_budget: u64,
+    epoch: u64,
+}
+
+// === Operational budget (dynamic-field state) ===
+
+/// Per-epoch budget for operational expenses (gas, storage, oracle
+/// queries) the session can pull from the vault treasury without owner
+/// intervention. Stored as a dynamic field on AgentIdentity so existing
+/// vaults can adopt this feature via a package upgrade without
+/// migrating their on-chain layout.
+public struct OperationalBudget has store, drop {
+    cap_per_epoch: u64,
+    spent_this_epoch: u64,
+    last_epoch_seen: u64,
+}
+
+/// Dynamic-field key for the OperationalBudget value.
+public struct OperationalBudgetKey has copy, drop, store {}
 
 // === The spine struct ===
 
@@ -413,6 +448,124 @@ public fun pay_strategist_royalty<T>(
         identity.id.to_inner(),
         royalty,
     );
+}
+
+// === Operational budget (owner sets cap, session pulls within cap) ===
+
+/// Owner-only: set or update the per-epoch operational pull cap. Idempotent
+/// — calling with the same cap is a no-op; calling with a new value replaces
+/// the cap without resetting the spent counter. The cap is denominated in the
+/// raw atomic units of whichever coin gets pulled (separate from the
+/// strategy spend cap which is also atomic units).
+public fun set_operational_cap(
+    identity: &mut AgentIdentity,
+    new_cap: u64,
+    ctx: &TxContext,
+) {
+    assert!(ctx.sender() == identity.owner, ENotOwner);
+    let agent_id = identity.id.to_inner();
+    let epoch_now = ctx.epoch();
+    let uid = &mut identity.id;
+    let key = OperationalBudgetKey {};
+    if (df::exists_(uid, key)) {
+        let bud: &mut OperationalBudget = df::borrow_mut(uid, key);
+        bud.cap_per_epoch = new_cap;
+    } else {
+        df::add(uid, key, OperationalBudget {
+            cap_per_epoch: new_cap,
+            spent_this_epoch: 0,
+            last_epoch_seen: epoch_now,
+        });
+    };
+    event::emit(OperationalCapSetEvent {
+        agent_id,
+        new_cap,
+        epoch: epoch_now,
+    });
+}
+
+/// Session-only: pull `amount` of coin T from the vault treasury for
+/// operational use (gas top-up, WAL acquisition, etc.). Bounded by the
+/// per-epoch cap. Returns the freshly-extracted Coin<T> as a hot potato
+/// for the PTB to consume (usually transferred to the session address).
+public fun pull_operational_funds<T>(
+    identity: &mut AgentIdentity,
+    amount: u64,
+    ctx: &mut TxContext,
+): coin::Coin<T> {
+    assert_can_act(identity, ctx);
+    assert!(amount > 0, EZeroSpend);
+    let agent_id = identity.id.to_inner();
+    let epoch_now = ctx.epoch();
+    let key = OperationalBudgetKey {};
+    assert!(df::exists_(&identity.id, key), EOpBudgetUnset);
+
+    // Update the budget counter (epoch-rolling).
+    let bud: &mut OperationalBudget = df::borrow_mut(&mut identity.id, key);
+    if (epoch_now > bud.last_epoch_seen) {
+        bud.spent_this_epoch = 0;
+        bud.last_epoch_seen = epoch_now;
+    };
+    assert!(bud.spent_this_epoch + amount <= bud.cap_per_epoch, EOpBudgetExceeded);
+    bud.spent_this_epoch = bud.spent_this_epoch + amount;
+    let remaining = bud.cap_per_epoch - bud.spent_this_epoch;
+
+    // Split the requested amount off the treasury balance.
+    let token_type = type_name::with_defining_ids<T>();
+    assert!(
+        identity.treasury.contains_with_type<TypeName, balance::Balance<T>>(token_type),
+        EInsufficientBalance,
+    );
+    let bal: &mut balance::Balance<T> = identity.treasury.borrow_mut(token_type);
+    assert!(bal.value() >= amount, EInsufficientBalance);
+    let payout_balance = bal.split(amount);
+    let payout_coin = coin::from_balance(payout_balance, ctx);
+
+    event::emit(OperationalFundsPulledEvent {
+        agent_id,
+        coin_type: token_type,
+        amount,
+        remaining_budget: remaining,
+        epoch: epoch_now,
+    });
+
+    payout_coin
+}
+
+// === Operational budget — read-only accessors ===
+
+public fun operational_cap(identity: &AgentIdentity): u64 {
+    let key = OperationalBudgetKey {};
+    if (df::exists_(&identity.id, key)) {
+        let bud: &OperationalBudget = df::borrow(&identity.id, key);
+        bud.cap_per_epoch
+    } else {
+        0
+    }
+}
+
+public fun operational_spent_this_epoch(identity: &AgentIdentity): u64 {
+    let key = OperationalBudgetKey {};
+    if (df::exists_(&identity.id, key)) {
+        let bud: &OperationalBudget = df::borrow(&identity.id, key);
+        bud.spent_this_epoch
+    } else {
+        0
+    }
+}
+
+public fun operational_remaining(identity: &AgentIdentity, ctx: &TxContext): u64 {
+    let key = OperationalBudgetKey {};
+    if (!df::exists_(&identity.id, key)) return 0;
+    let bud: &OperationalBudget = df::borrow(&identity.id, key);
+    let epoch_now = ctx.epoch();
+    if (epoch_now > bud.last_epoch_seen) {
+        bud.cap_per_epoch
+    } else if (bud.spent_this_epoch >= bud.cap_per_epoch) {
+        0
+    } else {
+        bud.cap_per_epoch - bud.spent_this_epoch
+    }
 }
 
 // === Read-only accessors ===

@@ -221,6 +221,51 @@ export function removeApprovedPackage(
 }
 
 // ---------------------------------------------------------------------------
+// Operational budget (vault self-funding) — package v2+
+// ---------------------------------------------------------------------------
+
+/**
+ * Owner-only: set or update the per-epoch cap on `pull_operational_funds`.
+ * Idempotent. Called once at mint-time + any time the owner wants to retune
+ * the agent's operational budget.
+ */
+export function setOperationalCap(
+  tx: Transaction,
+  packageId: string,
+  args: { agentId: string; capPerEpoch: bigint },
+): TransactionResult {
+  return tx.moveCall({
+    target: target(packageId, 'agent', 'set_operational_cap'),
+    arguments: [tx.object(args.agentId), tx.pure.u64(args.capPerEpoch)],
+  });
+}
+
+/**
+ * Session-only: pull `amount` of coin T from the vault treasury to fund
+ * operational expenses (gas top-up, WAL acquisition, oracle queries).
+ * Returns the freshly-extracted Coin<T> handle — the PTB MUST consume it,
+ * typically by transferring it to the session address so the next tick has
+ * fresh gas.
+ *
+ * Bounded by `operational_cap_per_epoch`. Aborts if the pull would exceed.
+ */
+export function pullOperationalFunds(
+  tx: Transaction,
+  packageId: string,
+  args: {
+    agentId: string;
+    coinTypeTag: string;
+    amount: bigint;
+  },
+): TransactionResult {
+  return tx.moveCall({
+    target: target(packageId, 'agent', 'pull_operational_funds'),
+    typeArguments: [args.coinTypeTag],
+    arguments: [tx.object(args.agentId), tx.pure.u64(args.amount)],
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Convenience: full mint PTB chained in one place
 // ---------------------------------------------------------------------------
 

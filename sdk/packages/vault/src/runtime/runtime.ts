@@ -28,6 +28,10 @@ export type { RuntimeConfig } from './config.js';
 const DEFAULT_TICK_INTERVAL_MS = 600_000;
 const DEFAULT_MAX_FAILURES = 5;
 const DEFAULT_WALRUS_EPOCHS = 5;
+/** Trigger refuel when session SUI drops below this many MIST (0.02 SUI). */
+const DEFAULT_REFUEL_THRESHOLD_MIST = 20_000_000n;
+/** Default top-up size when refueling (0.05 SUI). */
+const DEFAULT_REFUEL_AMOUNT_MIST = 50_000_000n;
 
 /**
  * Optional dependency overrides for testing. Production callers leave this
@@ -134,6 +138,15 @@ export class VaultRuntime {
       );
       return null;
     }
+
+    // Auto-refuel: check the session's SUI balance and, if below the
+    // configured threshold, fire a one-shot top-up PTB pulling from the
+    // vault's operational budget. Lands a fresh SUI coin on the session
+    // address that the NEXT tick PTB can use as gas. Failures here are
+    // non-fatal — if the cap isn't set or the treasury is dry, we just
+    // log and proceed; the current tick's own gas comes from whatever
+    // SUI the session already holds.
+    await this.#maybeRefuelSession(signer, currentEpoch);
 
     // Auto-detect the vault's quote token from its bag holdings so the
     // strategy resolver targets the right USDC variant (Circle, bridge,
@@ -305,6 +318,72 @@ export class VaultRuntime {
       'rebalance executed',
     );
     return receipt;
+  }
+
+  /**
+   * Pre-tick auto-refuel. Reads the session's SUI balance; if it's
+   * below the threshold, fires a `pull_operational_funds<SUI>` PTB
+   * that lands fresh SUI on the session address. The session's
+   * current SUI pays for this PTB itself (so threshold must leave
+   * room for one transaction's worth of gas, ~5M MIST).
+   */
+  async #maybeRefuelSession(
+    signer: Awaited<ReturnType<typeof loadSessionKeypair>>,
+    epoch: bigint,
+  ): Promise<void> {
+    const threshold = this.#config.refuelThresholdMist ?? DEFAULT_REFUEL_THRESHOLD_MIST;
+    const topUpAmount =
+      this.#config.refuelAmountMist ?? DEFAULT_REFUEL_AMOUNT_MIST;
+    const sessionAddr = signer.toSuiAddress();
+    let balance = 0n;
+    try {
+      const r = await this.#client.getBalance({ owner: sessionAddr });
+      balance = BigInt(r.totalBalance);
+    } catch (err) {
+      this.#logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'auto-refuel: skipped balance check (rpc error)',
+      );
+      return;
+    }
+    if (balance >= threshold) return;
+    this.#logger.info(
+      {
+        sessionAddr,
+        balance: balance.toString(),
+        threshold: threshold.toString(),
+        topUpAmount: topUpAmount.toString(),
+      },
+      'auto-refuel: session below threshold; pulling from treasury',
+    );
+    try {
+      const tx = new Transaction();
+      const coin = tx.moveCall({
+        target: target(this.#config.packageId, 'agent', 'pull_operational_funds'),
+        typeArguments: ['0x2::sui::SUI'],
+        arguments: [tx.object(this.#config.agentId), tx.pure.u64(topUpAmount)],
+      });
+      tx.transferObjects([coin], tx.pure.address(sessionAddr));
+      const result = await this.#client.signAndExecuteTransaction({
+        transaction: tx,
+        signer,
+        options: { showEffects: true },
+      });
+      await this.#client.waitForTransaction({ digest: result.digest });
+      this.#logger.info(
+        {
+          txDigest: result.digest,
+          newBalance: (balance + topUpAmount).toString(),
+          epoch: epoch.toString(),
+        },
+        'auto-refuel: session topped up from treasury',
+      );
+    } catch (err) {
+      this.#logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'auto-refuel: pull_operational_funds failed (cap unset, exhausted, or treasury dry?). Proceeding with existing session gas.',
+      );
+    }
   }
 
   async #executeNoop(

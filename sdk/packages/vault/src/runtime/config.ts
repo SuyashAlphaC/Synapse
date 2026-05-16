@@ -54,6 +54,16 @@ export interface RuntimeConfig {
    * default SUI/DBUSDC pool.
    */
   poolIdOverride?: string;
+  /**
+   * Trigger auto-refuel when session SUI balance drops below this many
+   * MIST. Override via `SYNAPSE_REFUEL_THRESHOLD_MIST`. Default 0.02 SUI.
+   */
+  refuelThresholdMist?: bigint;
+  /**
+   * Pull this many MIST from treasury when refueling. Override via
+   * `SYNAPSE_REFUEL_AMOUNT_MIST`. Default 0.05 SUI (≈10 ticks of gas).
+   */
+  refuelAmountMist?: bigint;
 }
 
 export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -107,6 +117,12 @@ export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig
       : {}),
     ...(env.SYNAPSE_QUOTE_TYPE ? { quoteTypeTagOverride: env.SYNAPSE_QUOTE_TYPE } : {}),
     ...(env.SYNAPSE_POOL_ID ? { poolIdOverride: env.SYNAPSE_POOL_ID } : {}),
+    ...(env.SYNAPSE_REFUEL_THRESHOLD_MIST
+      ? { refuelThresholdMist: BigInt(env.SYNAPSE_REFUEL_THRESHOLD_MIST) }
+      : {}),
+    ...(env.SYNAPSE_REFUEL_AMOUNT_MIST
+      ? { refuelAmountMist: BigInt(env.SYNAPSE_REFUEL_AMOUNT_MIST) }
+      : {}),
   };
 }
 
