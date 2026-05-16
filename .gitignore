@@ -49,3 +49,6 @@ runtime/
 !sdk/packages/vault/src/runtime/**
 agent-data/
 *.delegate-key
+
+# Synapse — local session keys for live-tick vaults
+scripts/live-vaults.json
