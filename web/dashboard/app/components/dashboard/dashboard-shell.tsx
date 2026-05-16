@@ -98,7 +98,15 @@ export function DashboardShell() {
             loading={liveQuery.isLoading}
           />
           <PolicyPanel {...(live ? { live } : {})} />
-          {liveVault && <SessionKeyPanel vaultId={liveVault.agentId} />}
+          {liveVault && (
+            <SessionKeyPanel
+              vaultId={liveVault.agentId}
+              {...(live?.identity.strategyId
+                ? { strategyId: live.identity.strategyId }
+                : {})}
+              strategyName={resolveStrategyName(live?.identity.strategyId)}
+            />
+          )}
           {liveVault && <ArtifactsPanel vaultId={liveVault.agentId} />}
           <DangerZone
             {...(liveVault ? { vaultId: liveVault.agentId } : {})}
@@ -108,6 +116,23 @@ export function DashboardShell() {
       </div>
     </>
   );
+}
+
+/**
+ * Map a known seeded strategy ID to its human label. Falls through to a
+ * generic display when the vault hired an unfamiliar strategy.
+ */
+function resolveStrategyName(strategyId: string | undefined): string {
+  if (!strategyId) return 'Synapse Strategy';
+  const seeded: Record<string, string> = {
+    '0x46996c0f9e692968f55a63c3cbc33eb8d19145c123b7a867a02da342e617d3ec':
+      'Synapse Conservative Rebalancer',
+    '0x44c0f7c4f6e04024c9bb1c0ce1eb1965018675cd074e7a410a59c2d43887c679':
+      'Synapse Balanced Yield',
+    '0xa1d73e17bc4c53484a3254c5ed3c0b24e340524d0014703c072f91d60f02d4a1':
+      'Synapse Aggressive Momentum',
+  };
+  return seeded[strategyId] ?? 'Synapse Strategy';
 }
 
 function MicroCard({ label, value, accent }: { label: string; value: string; accent: string }) {

@@ -135,6 +135,24 @@ export function MintWizard() {
     const fundingMist = BigInt(Math.round(form.fundingSui * 1_000_000_000));
     const spendPerEpochMist = (fundingMist * BigInt(Math.round(form.spendPct * 100))) / 10_000n;
 
+    // CRITICAL — save the session key file *before* submitting the mint PTB.
+    // If the tx fails or the user closes the tab mid-flow, they still have
+    // the secret in their Downloads. The secret is what the agent runtime
+    // signs ticks with; without it the vault is unrunnable.
+    downloadSessionKeyFile({
+      address: session.address,
+      secretBase64: session.secretBase64,
+      strategyId: form.strategyId ?? '',
+      ownerAddress: account.address,
+      mintedAtMs: Date.now(),
+    });
+    toast.push({
+      variant: 'info',
+      title: 'Session key saved to Downloads',
+      body: 'Keep this .key file safe — the agent runtime signs with it.',
+      durationMs: 6000,
+    });
+
     try {
       const { epoch } = await suiClient.getLatestSuiSystemState();
       const expiryEpoch = BigInt(epoch) + BigInt(form.expiryDays);
@@ -847,4 +865,39 @@ function Spinner() {
       <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
     </svg>
   );
+}
+
+/**
+ * Trigger a browser download of the freshly-generated session keypair so
+ * the user has the secret persistently before the mint PTB ever fires.
+ * The file is JSON so it round-trips into scripts/live-vaults.json cleanly.
+ */
+function downloadSessionKeyFile(payload: {
+  address: string;
+  secretBase64: string;
+  strategyId: string;
+  ownerAddress: string;
+  mintedAtMs: number;
+}): void {
+  const body = JSON.stringify(
+    {
+      address: payload.address,
+      secretBase64: payload.secretBase64,
+      strategyId: payload.strategyId,
+      ownerAddress: payload.ownerAddress,
+      mintedAtMs: payload.mintedAtMs,
+      note: 'Session secret for a Synapse Vault. Keep private. Use with scripts/run-live-tick.ts.',
+    },
+    null,
+    2,
+  );
+  const blob = new Blob([body], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `synapse-session-${payload.address.slice(2, 10)}.key`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

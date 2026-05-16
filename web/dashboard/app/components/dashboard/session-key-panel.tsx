@@ -18,6 +18,10 @@ import { shortenAddress, shortenHash } from '@/lib/format';
 
 interface SessionKeyPanelProps {
   vaultId: string;
+  /** Strategy this vault was minted against — populates the live-tick snippet. */
+  strategyId?: string;
+  /** Strategy display name — populates the live-tick snippet. */
+  strategyName?: string;
 }
 
 interface GeneratedKey {
@@ -52,7 +56,11 @@ interface GeneratedKey {
  * only persists as long as the modal is open + the user explicitly
  * downloads/copies it. Closing the modal without downloading throws it away.
  */
-export function SessionKeyPanel({ vaultId }: SessionKeyPanelProps) {
+export function SessionKeyPanel({
+  vaultId,
+  strategyId,
+  strategyName,
+}: SessionKeyPanelProps) {
   const account = useCurrentAccount();
   const suiClient = useSuiClient();
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
@@ -337,6 +345,15 @@ mv ~/Downloads/synapse-session-${shortenHash(vaultId)}.key $SYNAPSE_SESSION_KEY_
 npx -w @synapse-core/vault tsx \\
   sdk/packages/vault/src/runtime/bin/run.ts --once`}
             </pre>
+
+            <LiveTickSnippet
+              vaultId={vaultId}
+              strategyId={strategyId ?? ''}
+              strategyName={strategyName ?? 'Synapse Strategy'}
+              ownerAddress={account?.address ?? '0x'}
+              sessionAddress={generated?.address ?? ''}
+              sessionSecretBase64={generated?.secretBase64 ?? ''}
+            />
           </div>
         ) : phase === 'failed' ? (
           <div className="space-y-3">
@@ -469,4 +486,93 @@ function decodeSuiPrivateKey(suiPrivKey: string): Uint8Array {
   // The base64Secret is only used for the optional Synapse-internal session
   // key restore path.
   return new Uint8Array(32);
+}
+
+/**
+ * Pre-fitted JSON block ready to paste into `scripts/live-vaults.json`. We
+ * only show this once — after a successful rotation — because the session
+ * secret is only in memory during that window. Includes a one-tap copy
+ * button and a download button so the user has multiple persistence paths.
+ */
+function LiveTickSnippet(props: {
+  vaultId: string;
+  strategyId: string;
+  strategyName: string;
+  ownerAddress: string;
+  sessionAddress: string;
+  sessionSecretBase64: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const snippet = JSON.stringify(
+    {
+      strategyId: props.strategyId,
+      strategyName: props.strategyName,
+      vaultId: props.vaultId,
+      sessionAddress: props.sessionAddress,
+      sessionSecretBase64: props.sessionSecretBase64,
+      ownerAddress: props.ownerAddress,
+      digest: 'rotated-via-dashboard',
+      mintedAtMs: Date.now(),
+      fundingMist: '0',
+    },
+    null,
+    2,
+  );
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(snippet);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      /* user can still hand-copy from the visible <pre> */
+    }
+  }
+
+  function download() {
+    const blob = new Blob([snippet], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `live-vault-${props.vaultId.slice(2, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="space-y-2 rounded-sm border-l-2 border-accent-blue bg-paper p-3">
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+          ↳ use for `scripts/run-live-tick.ts`
+        </p>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={copy}
+            className="font-mono text-[10px] text-accent-blue hover:underline"
+          >
+            {copied ? '✓ copied' : 'copy'}
+          </button>
+          <button
+            type="button"
+            onClick={download}
+            className="font-mono text-[10px] text-accent-blue hover:underline"
+          >
+            download
+          </button>
+        </div>
+      </div>
+      <pre className="overflow-x-auto rounded-sm border border-divider bg-paper-strong p-2 font-mono text-[10px] text-ink">
+        {snippet}
+      </pre>
+      <p className="font-mono text-[10px] text-ink-mute">
+        Append this object to the array in <code>scripts/live-vaults.json</code>, fund the
+        session with ~0.02 SUI for gas, then run{' '}
+        <code className="text-ink">npx tsx scripts/run-live-tick.ts</code> to record on-chain
+        ticks on this vault.
+      </p>
+    </div>
+  );
 }
