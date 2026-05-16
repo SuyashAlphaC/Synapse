@@ -68,7 +68,7 @@ export interface BuildRebalancePTBArgs {
 
 export interface BuildRebalancePTBResult {
   /** The PTB result handle for the published artifact (a `u64` slot). */
-  artifactSlotHandle: TransactionResult;
+  artifactSlotHandle: TransactionResult | null;
 }
 
 /**
@@ -127,16 +127,24 @@ export function buildRebalancePTB(args: BuildRebalancePTBArgs): BuildRebalancePT
     });
   }
 
-  // 6. Publish the audit report as a Walrus artifact
-  const artifactSlotHandle = publishArtifactCall(tx, synapsePackageId, {
-    agentId: vaultId,
-    walrusBlobId: new TextEncoder().encode(reportWalrusBlobId),
-    sha256: report.sha256,
-    mimeType: 'text/markdown',
-    sizeBytes: BigInt(new TextEncoder().encode(report.markdown).byteLength),
-    sealEncrypted: false,
-    label: `rebalance-${plan.planId}`,
-  });
+  // 6. Publish the audit report as a Walrus artifact — OPTIONAL. When
+  //    `reportWalrusBlobId` is empty the caller couldn't upload (no WAL,
+  //    publisher down, etc.) and we degrade by skipping the artifact
+  //    registration. The on-chain action log + swap audit events still
+  //    land, so the rebalance is fully recorded — just without the
+  //    fetchable rationale blob.
+  const artifactSlotHandle: TransactionResult | null =
+    reportWalrusBlobId.length > 0
+      ? publishArtifactCall(tx, synapsePackageId, {
+          agentId: vaultId,
+          walrusBlobId: new TextEncoder().encode(reportWalrusBlobId),
+          sha256: report.sha256,
+          mimeType: 'text/markdown',
+          sizeBytes: BigInt(new TextEncoder().encode(report.markdown).byteLength),
+          sealEncrypted: false,
+          label: `rebalance-${plan.planId}`,
+        })
+      : null;
 
   // 7. Top-level action log
   tx.moveCall({
@@ -144,7 +152,9 @@ export function buildRebalancePTB(args: BuildRebalancePTBArgs): BuildRebalancePT
     arguments: [
       tx.object(vaultId),
       tx.pure.u8(ActionKind.ArtifactPublish),
-      tx.pure.string(`rebalance ${plan.planId}: ${plan.summary}`),
+      tx.pure.string(
+        `rebalance ${plan.planId}: ${plan.summary}${reportWalrusBlobId.length === 0 ? ' (no walrus blob — operational WAL missing)' : ''}`,
+      ),
       tx.pure.vector('u8', Array.from(report.sha256)),
     ],
   });

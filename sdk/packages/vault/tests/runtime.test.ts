@@ -114,6 +114,9 @@ function makeOnChainState(): OnChainAgentState {
       messagingInbox: null,
       messagingOutbox: null,
       revoked: false,
+      // Bogus strategy id — keeps the runtime's strategy resolver from
+      // overriding the test's injected mock strategy with a real one.
+      strategyId: '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
     },
     policy: {
       spendPerEpochUsd: 0,

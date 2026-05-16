@@ -42,6 +42,18 @@ export interface RuntimeConfig {
    * runtime about newly-published strategies without recompiling.
    */
   strategyRegistryJson?: string;
+  /**
+   * Quote token type override (e.g. Circle USDC vs the bundled DBUSDC).
+   * Wired through `SYNAPSE_QUOTE_TYPE`. When unset, the runtime auto-detects
+   * the first non-SUI token in the vault's holdings.
+   */
+  quoteTypeTagOverride?: string;
+  /**
+   * DeepBookV3 pool ID override matching the quote-type override.
+   * Wired through `SYNAPSE_POOL_ID`. When unset, the runtime uses the
+   * default SUI/DBUSDC pool.
+   */
+  poolIdOverride?: string;
 }
 
 export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -93,6 +105,8 @@ export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig
     ...(env.SYNAPSE_STRATEGY_REGISTRY_JSON
       ? { strategyRegistryJson: env.SYNAPSE_STRATEGY_REGISTRY_JSON }
       : {}),
+    ...(env.SYNAPSE_QUOTE_TYPE ? { quoteTypeTagOverride: env.SYNAPSE_QUOTE_TYPE } : {}),
+    ...(env.SYNAPSE_POOL_ID ? { poolIdOverride: env.SYNAPSE_POOL_ID } : {}),
   };
 }
 

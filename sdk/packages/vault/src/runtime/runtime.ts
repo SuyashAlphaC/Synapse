@@ -135,6 +135,24 @@ export class VaultRuntime {
       return null;
     }
 
+    // Auto-detect the vault's quote token from its bag holdings so the
+    // strategy resolver targets the right USDC variant (Circle, bridge,
+    // DBUSDC, etc.) without operator config. Explicit env overrides
+    // (SYNAPSE_QUOTE_TYPE / SYNAPSE_POOL_ID) win when set.
+    const detectedQuote = agent.holdings.find(
+      (h) =>
+        h.coinTypeTag !== '0x2::sui::SUI' &&
+        !h.coinTypeTag.endsWith('::sui::SUI'),
+    );
+    const overrides: { quoteTypeTag?: string; quoteSymbol?: string; poolId?: string } = {};
+    if (this.#config.quoteTypeTagOverride) {
+      overrides.quoteTypeTag = this.#config.quoteTypeTagOverride;
+    } else if (detectedQuote) {
+      overrides.quoteTypeTag = detectedQuote.coinTypeTag;
+      overrides.quoteSymbol = detectedQuote.symbol;
+    }
+    if (this.#config.poolIdOverride) overrides.poolId = this.#config.poolIdOverride;
+
     // Dispatch to the correct Strategy implementation based on the vault's
     // on-chain `strategy_id`. Falls back to the runtime-configured default
     // only when the ID is unknown (i.e., a brand-new marketplace strategy
@@ -145,6 +163,7 @@ export class VaultRuntime {
       ...(this.#config.strategyRegistryJson !== undefined
         ? { envOverrideJson: this.#config.strategyRegistryJson }
         : {}),
+      overrides,
     });
     if (!resolved) {
       this.#logger.warn(
@@ -156,7 +175,12 @@ export class VaultRuntime {
       );
     } else {
       this.#logger.info(
-        { strategyId: agent.identity.strategyId, slug },
+        {
+          strategyId: agent.identity.strategyId,
+          slug,
+          quoteTypeTag: overrides.quoteTypeTag,
+          poolId: overrides.poolId,
+        },
         'dispatching to on-chain strategy',
       );
     }
@@ -206,16 +230,29 @@ export class VaultRuntime {
     });
 
     if (decision.kind === 'noop') {
-      return this.#executeNoop(report, currentEpoch, signer);
+      return this.#executeNoop(report, currentEpoch, signer, agent.identity.strategyId);
     }
 
-    const upload = await uploadReportBlob({
-      suiClient: this.#client,
-      walrusNetwork: this.#config.walrusNetwork,
-      signer,
-      report,
-      epochs: this.#config.walrusEpochs ?? DEFAULT_WALRUS_EPOCHS,
-    });
+    // Try to upload the rationale to Walrus, degrade gracefully if no WAL.
+    // The rebalance trade itself does NOT require Walrus — the on-chain
+    // attestation::log_action + record_tick_performance calls still land
+    // and capture the audit trail. The rationale blob is fetchable
+    // metadata; missing it doesn't change what the agent actually did.
+    let upload: Awaited<ReturnType<typeof uploadReportBlob>> | null = null;
+    try {
+      upload = await uploadReportBlob({
+        suiClient: this.#client,
+        walrusNetwork: this.#config.walrusNetwork,
+        signer,
+        report,
+        epochs: this.#config.walrusEpochs ?? DEFAULT_WALRUS_EPOCHS,
+      });
+    } catch (err) {
+      this.#logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'walrus upload skipped (no WAL?); proceeding with rebalance + on-chain audit only',
+      );
+    }
     const tx = new Transaction();
     buildRebalancePTB({
       tx,
@@ -223,9 +260,22 @@ export class VaultRuntime {
       vaultId: this.#config.agentId,
       plan: decision,
       report,
-      reportWalrusBlobId: upload.blobId,
+      reportWalrusBlobId: upload?.blobId ?? '',
       deepbookPkg: DEEPBOOK_PACKAGE_ID_TESTNET,
       swap: deepbookSwap,
+    });
+    // Record performance for the on-chain reputation registry.
+    // Net alpha for this tick = (sum of executed-vs-expected outputs in bps).
+    // For v1 keep it simple: log 0/0 alpha and let the off-chain indexer
+    // compute realized alpha post-hoc from holdings deltas.
+    tx.moveCall({
+      target: target(this.#config.packageId, 'agent', 'record_tick_performance'),
+      arguments: [
+        tx.object(this.#config.agentId),
+        tx.object(agent.identity.strategyId),
+        tx.pure.u64(0),
+        tx.pure.u64(0),
+      ],
     });
     const result = await this.#client.signAndExecuteTransaction({
       transaction: tx,
@@ -238,9 +288,9 @@ export class VaultRuntime {
       planId: decision.planId,
       txDigest: result.digest,
       trades,
-      reportWalrusBlobId: upload.blobId,
-      reportBlobObjectId: upload.blobObjectId,
-      artifactSlot: parseArtifactSlot(result),
+      reportWalrusBlobId: upload?.blobId ?? '',
+      reportBlobObjectId: upload?.blobObjectId ?? '',
+      artifactSlot: upload ? parseArtifactSlot(result) : 0n,
       epoch: currentEpoch,
       executedAt: new Date().toISOString(),
     };
@@ -261,24 +311,41 @@ export class VaultRuntime {
     report: AuditReport,
     currentEpoch: bigint,
     signer: Awaited<ReturnType<typeof loadSessionKeypair>>,
+    strategyId: string,
   ): Promise<ExecutionReceipt> {
-    const upload = await uploadReportBlob({
-      suiClient: this.#client,
-      walrusNetwork: this.#config.walrusNetwork,
-      signer,
-      report,
-      epochs: this.#config.walrusEpochs ?? DEFAULT_WALRUS_EPOCHS,
-    });
+    // Try to publish the rationale to Walrus, but degrade gracefully if
+    // the session is out of WAL tokens or the Walrus publisher is down.
+    // The on-chain attestation + record_tick_performance still land, so
+    // the dashboard's Runtime Health panel + strategy reputation update
+    // regardless.
+    let upload: Awaited<ReturnType<typeof uploadReportBlob>> | null = null;
+    try {
+      upload = await uploadReportBlob({
+        suiClient: this.#client,
+        walrusNetwork: this.#config.walrusNetwork,
+        signer,
+        report,
+        epochs: this.#config.walrusEpochs ?? DEFAULT_WALRUS_EPOCHS,
+      });
+    } catch (err) {
+      this.#logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'walrus upload skipped (no WAL?); recording on-chain tick anyway',
+      );
+    }
+
     const tx = new Transaction();
-    publishArtifactCall(tx, this.#config.packageId, {
-      agentId: this.#config.agentId,
-      walrusBlobId: new TextEncoder().encode(upload.blobId),
-      sha256: upload.sha256,
-      mimeType: 'text/markdown',
-      sizeBytes: BigInt(upload.sizeBytes),
-      sealEncrypted: false,
-      label: `audit-${report.planId}`,
-    });
+    if (upload) {
+      publishArtifactCall(tx, this.#config.packageId, {
+        agentId: this.#config.agentId,
+        walrusBlobId: new TextEncoder().encode(upload.blobId),
+        sha256: upload.sha256,
+        mimeType: 'text/markdown',
+        sizeBytes: BigInt(upload.sizeBytes),
+        sealEncrypted: false,
+        label: `audit-${report.planId}`,
+      });
+    }
     tx.moveCall({
       target: target(this.#config.packageId, 'attestation', 'log_action'),
       arguments: [
@@ -286,6 +353,18 @@ export class VaultRuntime {
         tx.pure.u8(ActionKind.ArtifactPublish),
         tx.pure.string(`noop ${report.planId}`),
         tx.pure.vector('u8', Array.from(report.sha256)),
+      ],
+    });
+    // Record performance on the strategy registry so the dashboard's
+    // Runtime Health + marketplace `LIVE α` columns reflect the tick.
+    // NOOP = 0 alpha (positive and negative both 0).
+    tx.moveCall({
+      target: target(this.#config.packageId, 'agent', 'record_tick_performance'),
+      arguments: [
+        tx.object(this.#config.agentId),
+        tx.object(strategyId),
+        tx.pure.u64(0),
+        tx.pure.u64(0),
       ],
     });
     const result = await this.#client.signAndExecuteTransaction({
@@ -298,19 +377,19 @@ export class VaultRuntime {
       planId: report.planId,
       txDigest: result.digest,
       trades: [],
-      reportWalrusBlobId: upload.blobId,
-      reportBlobObjectId: upload.blobObjectId,
-      artifactSlot: parseArtifactSlot(result),
+      reportWalrusBlobId: upload?.blobId ?? '',
+      reportBlobObjectId: upload?.blobObjectId ?? '',
+      artifactSlot: upload ? parseArtifactSlot(result) : 0n,
       epoch: currentEpoch,
       executedAt: new Date().toISOString(),
     };
     this.#logger.info(
       {
         txDigest: receipt.txDigest,
-        walrusBlobId: receipt.reportWalrusBlobId,
+        walrusBlobId: receipt.reportWalrusBlobId || '(skipped — no WAL)',
         artifactSlot: receipt.artifactSlot.toString(),
       },
-      'noop report published',
+      'noop tick recorded on-chain',
     );
     return receipt;
   }

@@ -79,16 +79,29 @@ function parseEnvOverride(raw: string | undefined): Record<string, StrategySlug>
 }
 
 /**
- * Build a concrete `Strategy` for a known slug using the testnet defaults.
- * Production deployments should layer per-vault overrides on top of this.
+ * Build a concrete `Strategy` for a known slug using the testnet defaults
+ * or operator-provided overrides. Lets a single deployed package work for
+ * any vault funded with any USDC variant.
  */
-export function buildStrategy(slug: StrategySlug): Strategy {
+export interface BuildStrategyOverrides {
+  /** Custom quote token type (e.g. Circle's USDC vs DeepBookV3's DBUSDC). */
+  quoteTypeTag?: string;
+  /** Display symbol for the quote token. Defaults to "USDC". */
+  quoteSymbol?: string;
+  /** DeepBookV3 pool the strategy should route through. */
+  poolId?: string;
+}
+
+export function buildStrategy(
+  slug: StrategySlug,
+  overrides: BuildStrategyOverrides = {},
+): Strategy {
   const commonPair = {
     baseTypeTag: SUI_TYPE_TAG_TESTNET,
     baseSymbol: 'SUI',
-    quoteTypeTag: USDC_TYPE_TAG_TESTNET,
-    quoteSymbol: 'DBUSDC',
-    poolId: SUI_USDC_POOL_ID_TESTNET,
+    quoteTypeTag: overrides.quoteTypeTag ?? USDC_TYPE_TAG_TESTNET,
+    quoteSymbol: overrides.quoteSymbol ?? 'USDC',
+    poolId: overrides.poolId ?? SUI_USDC_POOL_ID_TESTNET,
   } as const;
 
   switch (slug) {
@@ -123,16 +136,19 @@ export function buildStrategy(slug: StrategySlug): Strategy {
 
 /**
  * Resolve a runtime `Strategy` from an on-chain `strategy_id`, with the
- * supplied `defaultStrategy` as a fallback for unknown IDs.
+ * supplied `defaultStrategy` as a fallback for unknown IDs and an
+ * optional `overrides` block that re-targets the quote token + pool
+ * (so the same strategy slug works for any USDC variant a vault holds).
  */
 export function resolveStrategy(args: {
   strategyId: string;
   defaultStrategy: Strategy;
   envOverrideJson?: string;
+  overrides?: BuildStrategyOverrides;
 }): { strategy: Strategy; resolved: boolean; slug: StrategySlug | null } {
   const slug = resolveStrategySlug(args.strategyId, args.envOverrideJson);
   if (!slug) {
     return { strategy: args.defaultStrategy, resolved: false, slug: null };
   }
-  return { strategy: buildStrategy(slug), resolved: true, slug };
+  return { strategy: buildStrategy(slug, args.overrides ?? {}), resolved: true, slug };
 }
