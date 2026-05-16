@@ -30,6 +30,10 @@ export interface LiveAgentIdentity {
   messagingOutbox: string | null;
   revoked: boolean;
   strategyId: string;
+  /** v2+: per-epoch cap on operational pulls (0 = feature unset on this vault). */
+  operationalCapPerEpoch: bigint;
+  /** v2+: amount pulled this epoch via pull_operational_funds. */
+  operationalSpentThisEpoch: bigint;
 }
 
 export interface LiveBalance {
@@ -80,8 +84,16 @@ export async function loadLiveVault({
   const treasuryFields = asRecord(treasury.fields, 'AgentIdentity.treasury.fields');
   const treasuryId = idFromField(treasuryFields.id, 'treasury.id');
 
-  const identity = parseIdentity(vaultId, fields);
-  const balances = await loadTreasuryBalances(client, treasuryId);
+  const identityCore = parseIdentity(vaultId, fields);
+  const [balances, opBudget] = await Promise.all([
+    loadTreasuryBalances(client, treasuryId),
+    loadOperationalBudget(client, vaultId),
+  ]);
+  const identity: LiveAgentIdentity = {
+    ...identityCore,
+    operationalCapPerEpoch: opBudget.capPerEpoch,
+    operationalSpentThisEpoch: opBudget.spentThisEpoch,
+  };
 
   return { identity, balances };
 }
@@ -89,6 +101,44 @@ export async function loadLiveVault({
 // ---------------------------------------------------------------------------
 // Treasury (Bag dynamic field walker)
 // ---------------------------------------------------------------------------
+
+/**
+ * Read the dynamic-field-stored OperationalBudget (added in package v2).
+ * Returns zeros when the field is absent (legacy vault, or v2+ vault
+ * whose owner never called `set_operational_cap`).
+ */
+async function loadOperationalBudget(
+  client: SuiJsonRpcClient,
+  vaultId: string,
+): Promise<{ capPerEpoch: bigint; spentThisEpoch: bigint }> {
+  try {
+    // Move dynamic field key is OperationalBudgetKey {} — a unit struct.
+    // The RPC accepts the BCS-encoded struct via name.value = {}.
+    const fieldName = {
+      type: `${SYNAPSE_PACKAGE_ID}::agent::OperationalBudgetKey`,
+      value: {},
+    };
+    const obj = await client.getDynamicFieldObject({
+      parentId: vaultId,
+      name: fieldName,
+    });
+    const content = obj.data?.content;
+    if (!content || content.dataType !== 'moveObject') {
+      return { capPerEpoch: 0n, spentThisEpoch: 0n };
+    }
+    const moveFields = (content as { fields: unknown }).fields;
+    const valueFields = asRecord(
+      (moveFields as { value?: unknown }).value ?? moveFields,
+      'OperationalBudget.value',
+    );
+    return {
+      capPerEpoch: bigintField(valueFields.cap_per_epoch, 'cap_per_epoch'),
+      spentThisEpoch: bigintField(valueFields.spent_this_epoch, 'spent_this_epoch'),
+    };
+  } catch {
+    return { capPerEpoch: 0n, spentThisEpoch: 0n };
+  }
+}
 
 async function loadTreasuryBalances(
   client: SuiJsonRpcClient,
@@ -165,7 +215,10 @@ function normalizeTypeTag(raw: string): string {
 // Identity parser
 // ---------------------------------------------------------------------------
 
-function parseIdentity(id: string, fields: Record<string, unknown>): LiveAgentIdentity {
+function parseIdentity(
+  id: string,
+  fields: Record<string, unknown>,
+): Omit<LiveAgentIdentity, 'operationalCapPerEpoch' | 'operationalSpentThisEpoch'> {
   return {
     id,
     owner: stringField(fields.owner, 'owner'),

@@ -34,7 +34,7 @@ const SAMPLE_POLICY = {
 
 const DEEPBOOK_TESTNET_PKG = '0xcaf6ba059d539a97646d47f0b9ddf843e138d215e2a12ca1f4585d386f7aec3a';
 
-type EditMode = 'spend' | 'expiry' | 'add-pkg' | 'remove-pkg' | null;
+type EditMode = 'spend' | 'expiry' | 'add-pkg' | 'remove-pkg' | 'op-cap' | null;
 
 export function PolicyPanel({ live }: PolicyPanelProps) {
   const [editMode, setEditMode] = useState<EditMode>(null);
@@ -132,6 +132,24 @@ export function PolicyPanel({ live }: PolicyPanelProps) {
           hint={sessionHint}
           accent="var(--accent-purple)"
         />
+        {live && (
+          <PolicyRow
+            label="Operational budget"
+            value={
+              live.identity.operationalCapPerEpoch === 0n
+                ? 'Not set'
+                : `${(Number(live.identity.operationalSpentThisEpoch) / 1e9).toFixed(4)} / ${(Number(live.identity.operationalCapPerEpoch) / 1e9).toFixed(4)} SUI`
+            }
+            hint={
+              live.identity.operationalCapPerEpoch === 0n
+                ? 'Agent must be manually refueled — set a cap to enable self-funding'
+                : 'Per-epoch cap on `pull_operational_funds`; auto-refuel pulls from treasury'
+            }
+            accent="var(--accent-coral)"
+            onEdit={() => setEditMode('op-cap')}
+            editLabel={live.identity.operationalCapPerEpoch === 0n ? '+ enable' : 'Update'}
+          />
+        )}
       </dl>
 
       {live && editMode === 'spend' && (
@@ -165,6 +183,12 @@ export function PolicyPanel({ live }: PolicyPanelProps) {
             setPkgToRemove(null);
             setEditMode(null);
           }}
+        />
+      )}
+      {live && editMode === 'op-cap' && (
+        <OperationalCapModal
+          identity={live.identity}
+          onClose={() => setEditMode(null)}
         />
       )}
     </div>
@@ -637,6 +661,134 @@ function RemovePackageModal({
             <code className="font-mono text-[11px]"> ENotWhitelisted</code>.
           </p>
           {error && <ErrorBlock msg={error} />}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function OperationalCapModal({
+  identity,
+  onClose,
+}: {
+  identity: PricedVaultState['identity'];
+  onClose: () => void;
+}) {
+  const account = useCurrentAccount();
+  const { submit, pending } = useSubmitPolicy();
+  const currentSui = Number(identity.operationalCapPerEpoch) / 1e9;
+  const [valueSui, setValueSui] = useState(
+    currentSui > 0 ? currentSui.toString() : '0.1',
+  );
+  const [digest, setDigest] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const valid = /^\d+(\.\d+)?$/.test(valueSui.trim()) && Number(valueSui) > 0;
+  const mistValue = valid ? BigInt(Math.round(Number(valueSui) * 1e9)) : 0n;
+
+  async function go() {
+    if (!valid) {
+      setError('Cap must be a positive decimal (in SUI).');
+      return;
+    }
+    setError(null);
+    try {
+      const tx = new Transaction();
+      tx.moveCall({
+        target: synapseTarget('agent', 'set_operational_cap'),
+        arguments: [tx.object(identity.id), tx.pure.u64(mistValue)],
+      });
+      const d = await submit({
+        tx,
+        vaultId: identity.id,
+        successTitle: 'Operational cap set on-chain',
+      });
+      setDigest(d);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={digest ? 'Operational budget set' : 'Set operational budget'}
+      accent="var(--accent-coral)"
+      footer={
+        digest ? (
+          <button type="button" className="btn-flat" data-variant="primary" onClick={onClose}>
+            Close
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="btn-flat"
+              data-variant="ghost"
+              onClick={onClose}
+              disabled={pending}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn-flat"
+              data-variant="primary"
+              onClick={go}
+              disabled={!valid || pending || !account}
+            >
+              {pending ? 'Signing…' : 'Set on-chain'}
+            </button>
+          </>
+        )
+      }
+    >
+      {digest ? (
+        <div className="space-y-3 text-sm">
+          <DoneBlock digest={digest} />
+          <p className="text-ink-soft">
+            The runtime will start auto-refueling from the treasury on its next tick.
+            No more manual <code className="font-mono text-[11px]">sui client pay-sui</code>{' '}
+            top-ups — the vault funds its own operational expenses within the cap.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3 text-sm">
+          <p className="text-ink-soft">
+            Calls{' '}
+            <code className="font-mono text-[11px]">agent::set_operational_cap</code>. The
+            session can then pull up to this many SUI per epoch from the treasury via
+            <code className="ml-1 font-mono text-[11px]">pull_operational_funds&lt;SUI&gt;</code>,
+            bounded automatically by the Move VM.
+          </p>
+          {currentSui > 0 && (
+            <p className="font-mono text-[11px] text-ink-mute">
+              Current cap: {currentSui.toFixed(4)} SUI/epoch · spent this epoch{' '}
+              {(Number(identity.operationalSpentThisEpoch) / 1e9).toFixed(4)} SUI
+            </p>
+          )}
+          <label className="grid gap-1.5">
+            <span className="font-display text-sm font-semibold">
+              New cap (SUI per epoch)
+            </span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={valueSui}
+              onChange={(e) => setValueSui(e.target.value)}
+              className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
+            />
+            <span className="font-mono text-[10px] text-ink-mute">
+              Atomic: {valid ? mistValue.toString() : '—'} MIST. Recommended: 0.05–0.2 SUI
+              for a vault ticking every 10 min.
+            </span>
+          </label>
+          {error && (
+            <pre className="overflow-x-auto rounded-sm border border-divider bg-paper p-3 font-mono text-[10px] text-ink-soft">
+              {error}
+            </pre>
+          )}
         </div>
       )}
     </Modal>
