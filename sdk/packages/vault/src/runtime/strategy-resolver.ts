@@ -13,6 +13,7 @@
  * vaults minted before the marketplace existed.
  */
 
+import type { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import type { Strategy } from '../types.js';
 import {
   AGGRESSIVE_MOMENTUM_ID,
@@ -27,6 +28,11 @@ import {
   SUI_USDC_POOL_ID_TESTNET,
   USDC_TYPE_TAG_TESTNET,
 } from './deepbook.js';
+import {
+  loadStrategyFromWalrus,
+  WalrusStrategyError,
+  type WalrusNetwork,
+} from './walrus-loader.js';
 
 /** Strategy slug returned by `resolveStrategySlug`. */
 export type StrategySlug =
@@ -151,4 +157,107 @@ export function resolveStrategy(args: {
     return { strategy: args.defaultStrategy, resolved: false, slug: null };
   }
   return { strategy: buildStrategy(slug, args.overrides ?? {}), resolved: true, slug };
+}
+
+/** Source the resolver settled on. Surfaced for logging + receipts. */
+export type StrategySource = 'known-slug' | 'walrus' | 'default-fallback';
+
+export interface ResolvedStrategy {
+  strategy: Strategy;
+  source: StrategySource;
+  /** Set when resolved via the slug map. */
+  slug: StrategySlug | null;
+  /** Set when resolved by fetching from Walrus. */
+  walrus: {
+    sourceWalrusBlob: string;
+    codeHashHex: string;
+    byteSize: number;
+  } | null;
+  /** Human-readable error from the Walrus path, when it was attempted but failed. */
+  walrusError: string | null;
+}
+
+/**
+ * Async resolver that prefers, in order:
+ *   1. A `KNOWN_STRATEGIES` slug match (cheap, deterministic, no I/O).
+ *   2. Dynamic load from Walrus when `allowWalrus` is true and a Sui
+ *      client is provided. The bundle is hash-verified against the
+ *      on-chain `code_hash` before it executes.
+ *   3. The runtime-configured `defaultStrategy` as a last resort.
+ *
+ * Walrus loading is opt-in — running arbitrary code from any
+ * strategist on the marketplace is a trust decision the operator
+ * makes explicitly (see `walrus-loader.ts` header).
+ */
+export async function resolveStrategyWithWalrus(args: {
+  strategyId: string;
+  defaultStrategy: Strategy;
+  envOverrideJson?: string;
+  overrides?: BuildStrategyOverrides;
+  walrus?: {
+    enabled: boolean;
+    client: SuiJsonRpcClient;
+    packageId: string;
+    network: WalrusNetwork;
+  };
+}): Promise<ResolvedStrategy> {
+  // 1) Cheap path: hardcoded slug map.
+  const slug = resolveStrategySlug(args.strategyId, args.envOverrideJson);
+  if (slug) {
+    return {
+      strategy: buildStrategy(slug, args.overrides ?? {}),
+      source: 'known-slug',
+      slug,
+      walrus: null,
+      walrusError: null,
+    };
+  }
+
+  // 2) Walrus path: only if operator opted in AND a client is available.
+  if (args.walrus?.enabled) {
+    try {
+      const loaded = await loadStrategyFromWalrus({
+        client: args.walrus.client,
+        packageId: args.walrus.packageId,
+        strategyId: args.strategyId,
+        network: args.walrus.network,
+      });
+      if (loaded) {
+        return {
+          strategy: loaded.strategy,
+          source: 'walrus',
+          slug: null,
+          walrus: {
+            sourceWalrusBlob: loaded.sourceWalrusBlob,
+            codeHashHex: loaded.codeHashHex,
+            byteSize: loaded.byteSize,
+          },
+          walrusError: null,
+        };
+      }
+    } catch (err) {
+      const message =
+        err instanceof WalrusStrategyError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      return {
+        strategy: args.defaultStrategy,
+        source: 'default-fallback',
+        slug: null,
+        walrus: null,
+        walrusError: message,
+      };
+    }
+  }
+
+  // 3) Default fallback.
+  return {
+    strategy: args.defaultStrategy,
+    source: 'default-fallback',
+    slug: null,
+    walrus: null,
+    walrusError: null,
+  };
 }

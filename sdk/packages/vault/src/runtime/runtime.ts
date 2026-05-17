@@ -20,7 +20,7 @@ import { deepbookSwap, DEEPBOOK_PACKAGE_ID_TESTNET } from './deepbook.js';
 import { loadSessionKeypair } from './keypair.js';
 import { createLogger, type VaultLogger } from './logger.js';
 import type { RuntimeConfig } from './config.js';
-import { resolveStrategy } from './strategy-resolver.js';
+import { resolveStrategyWithWalrus } from './strategy-resolver.js';
 import type { Strategy } from '../types.js';
 
 export type { RuntimeConfig } from './config.js';
@@ -186,37 +186,63 @@ export class VaultRuntime {
     if (this.#config.poolIdOverride) overrides.poolId = this.#config.poolIdOverride;
 
     // Dispatch to the correct Strategy implementation based on the vault's
-    // on-chain `strategy_id`. Falls back to the runtime-configured default
-    // only when the ID is unknown (i.e., a brand-new marketplace strategy
-    // the resolver hasn't been taught about yet).
-    const { strategy, resolved, slug } = resolveStrategy({
+    // on-chain `strategy_id`. Tries (1) hardcoded slug map, (2) Walrus
+    // dynamic load when the operator opted in, (3) configured default
+    // as a last resort. The Walrus path hash-verifies the bundle against
+    // the on-chain `code_hash` before executing — see walrus-loader.ts.
+    const resolution = await resolveStrategyWithWalrus({
       strategyId: agent.identity.strategyId,
       defaultStrategy: this.#config.strategy,
       ...(this.#config.strategyRegistryJson !== undefined
         ? { envOverrideJson: this.#config.strategyRegistryJson }
         : {}),
       overrides,
+      ...(this.#config.allowWalrusStrategies
+        ? {
+            walrus: {
+              enabled: true,
+              client: this.#client,
+              packageId: this.#config.packageId,
+              network: this.#config.walrusNetwork,
+            },
+          }
+        : {}),
     });
-    if (!resolved) {
-      this.#logger.warn(
-        {
-          strategyId: agent.identity.strategyId,
-          fallback: this.#config.strategy.id,
-        },
-        'unknown on-chain strategy_id; falling back to runtime-configured strategy',
-      );
-    } else {
+    if (resolution.source === 'walrus' && resolution.walrus) {
       this.#logger.info(
         {
           strategyId: agent.identity.strategyId,
-          slug,
+          walrusBlob: resolution.walrus.sourceWalrusBlob,
+          codeHashHex: resolution.walrus.codeHashHex,
+          byteSize: resolution.walrus.byteSize,
+          quoteTypeTag: overrides.quoteTypeTag,
+          poolId: overrides.poolId,
+        },
+        'dispatching to Walrus-loaded marketplace strategy',
+      );
+    } else if (resolution.source === 'known-slug') {
+      this.#logger.info(
+        {
+          strategyId: agent.identity.strategyId,
+          slug: resolution.slug,
           quoteTypeTag: overrides.quoteTypeTag,
           poolId: overrides.poolId,
         },
         'dispatching to on-chain strategy',
       );
+    } else {
+      this.#logger.warn(
+        {
+          strategyId: agent.identity.strategyId,
+          fallback: this.#config.strategy.id,
+          walrusError: resolution.walrusError,
+        },
+        resolution.walrusError
+          ? 'walrus strategy load failed; falling back to runtime-configured strategy'
+          : 'unknown on-chain strategy_id; falling back to runtime-configured strategy',
+      );
     }
-    const activeStrategy: Strategy = strategy;
+    const activeStrategy: Strategy = resolution.strategy;
 
     const market = await loadMarketSnapshot({
       client: this.#client,

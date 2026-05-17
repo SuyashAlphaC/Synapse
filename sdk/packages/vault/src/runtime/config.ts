@@ -64,6 +64,18 @@ export interface RuntimeConfig {
    * `SYNAPSE_REFUEL_AMOUNT_MIST`. Default 0.05 SUI (≈10 ticks of gas).
    */
   refuelAmountMist?: bigint;
+  /**
+   * Opt in to dynamically loading marketplace-published strategy
+   * bundles from Walrus. When true and the on-chain `strategy_id`
+   * isn't in `KNOWN_STRATEGIES`, the runtime fetches the bundle from
+   * Walrus, verifies its sha256 matches the on-chain `code_hash`, and
+   * executes it via dynamic ESM import. Wired through
+   * `SYNAPSE_ALLOW_WALRUS_STRATEGIES`. Default false.
+   *
+   * SECURITY: loaded code runs with full Node privileges in this
+   * version. Enable only if you trust the marketplace publisher set.
+   */
+  allowWalrusStrategies?: boolean;
 }
 
 export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -123,6 +135,9 @@ export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig
     ...(env.SYNAPSE_REFUEL_AMOUNT_MIST
       ? { refuelAmountMist: BigInt(env.SYNAPSE_REFUEL_AMOUNT_MIST) }
       : {}),
+    ...(parseBooleanEnv(env.SYNAPSE_ALLOW_WALRUS_STRATEGIES)
+      ? { allowWalrusStrategies: true }
+      : {}),
   };
 }
 
@@ -146,4 +161,10 @@ function numberFromEnv(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) throw new Error(`Invalid numeric env value: ${value}`);
   return parsed;
+}
+
+function parseBooleanEnv(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  const lowered = value.trim().toLowerCase();
+  return lowered === '1' || lowered === 'true' || lowered === 'yes' || lowered === 'on';
 }
