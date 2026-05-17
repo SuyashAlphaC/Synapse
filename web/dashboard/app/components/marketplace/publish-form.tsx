@@ -15,12 +15,18 @@ import { useToast } from '../ui/toast';
 import { synapseTarget, explorerTxUrl, explorerObjectUrl } from '@/lib/synapse-config';
 import { shortenHash } from '@/lib/format';
 import { RISK_LABEL, type RiskProfile } from '@/lib/strategies';
+import {
+  StrategyBundlerPanel,
+  type BundlerCallbackArgs,
+} from './strategy-bundler-panel';
 
 interface FormState {
   name: string;
   description: string;
   sourceWalrusBlob: string;
   codeHashHex: string;
+  bundleSizeBytes: number | null;
+  bundleAlreadyCertified: boolean;
   riskProfile: RiskProfile;
   royaltyBps: number;
 }
@@ -30,6 +36,8 @@ const INITIAL: FormState = {
   description: '',
   sourceWalrusBlob: '',
   codeHashHex: '',
+  bundleSizeBytes: null,
+  bundleAlreadyCertified: false,
   riskProfile: 0,
   royaltyBps: 1500,
 };
@@ -52,25 +60,18 @@ export function PublishStrategyForm() {
     form.name.trim().length > 0 &&
     form.description.trim().length >= 20 &&
     /^0x[0-9a-fA-F]{64}$/.test(form.codeHashHex.trim()) &&
+    form.sourceWalrusBlob.length > 0 &&
     form.royaltyBps >= 0 &&
     form.royaltyBps <= 5000;
 
-  async function generateCodeHash() {
-    if (!form.sourceWalrusBlob && !form.description) {
-      toast.push({
-        variant: 'warn',
-        title: 'Nothing to hash yet',
-        body: 'Fill in source pointer or description first.',
-      });
-      return;
-    }
-    const seed = `${form.name}\n${form.description}\n${form.sourceWalrusBlob}\n${Date.now()}`;
-    const bytes = new TextEncoder().encode(seed);
-    const hash = await crypto.subtle.digest('SHA-256', bytes);
-    const hex = '0x' + Array.from(new Uint8Array(hash))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-    setForm((f) => ({ ...f, codeHashHex: hex }));
+  function onBundled(result: BundlerCallbackArgs) {
+    setForm((f) => ({
+      ...f,
+      sourceWalrusBlob: result.walrusBlobId,
+      codeHashHex: result.codeHashHex,
+      bundleSizeBytes: result.sizeBytes,
+      bundleAlreadyCertified: result.alreadyCertified,
+    }));
   }
 
   async function submit() {
@@ -288,37 +289,7 @@ export function PublishStrategyForm() {
           </Field>
         </div>
 
-        <Field
-          label="Walrus source blob ID"
-          hint="(optional for testnet) Where the full runtime code lives. Helpful for reproducibility audits."
-        >
-          <input
-            type="text"
-            value={form.sourceWalrusBlob}
-            onChange={(e) => setForm({ ...form, sourceWalrusBlob: e.target.value })}
-            placeholder="walrus-blob-id-abc…"
-            className="w-full rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
-          />
-        </Field>
-
-        <Field
-          label="Code hash (sha256, 32 bytes hex)"
-          hint="Commitment to the strategy runtime bundle. Click ‘derive’ to generate one from the description."
-        >
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-            <input
-              type="text"
-              value={form.codeHashHex}
-              onChange={(e) => setForm({ ...form, codeHashHex: e.target.value })}
-              placeholder="0x…"
-              className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-[11px] outline-none focus:border-ink"
-              maxLength={66}
-            />
-            <button type="button" className="btn-flat" data-variant="ghost" onClick={generateCodeHash}>
-              Derive sha256
-            </button>
-          </div>
-        </Field>
+        <StrategyBundlerPanel onBundled={onBundled} disabled={isPending} />
 
         <div className="flex flex-wrap items-center gap-3 pt-2">
           {account ? (
@@ -336,7 +307,8 @@ export function PublishStrategyForm() {
           )}
           {!canSubmit && (
             <span className="font-mono text-[11px] text-ink-mute">
-              Fill name + description (≥20 chars) + 32-byte hex code hash.
+              Fill name + description (≥20 chars) + bundle &amp; upload via the
+              panel above to populate the Walrus blob + sha256.
             </span>
           )}
         </div>
@@ -355,12 +327,24 @@ export function PublishStrategyForm() {
               value={`${(form.royaltyBps / 100).toFixed(1)}% (${form.royaltyBps}bps)`}
             />
             <RowSummary
+              label="Walrus blob"
+              value={
+                form.sourceWalrusBlob
+                  ? `${shortenHash(form.sourceWalrusBlob)}${form.bundleAlreadyCertified ? ' (reused)' : ''}`
+                  : '—'
+              }
+            />
+            <RowSummary
               label="Code hash"
               value={
                 form.codeHashHex.length > 0
                   ? `${form.codeHashHex.slice(0, 10)}…${form.codeHashHex.slice(-6)}`
                   : '—'
               }
+            />
+            <RowSummary
+              label="Bundle size"
+              value={form.bundleSizeBytes !== null ? `${form.bundleSizeBytes} B` : '—'}
             />
           </dl>
           <hr className="divider-dashed my-5" />
