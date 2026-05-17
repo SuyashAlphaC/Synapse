@@ -6,7 +6,7 @@
  */
 
 import type { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
-import { SYNAPSE_PACKAGE_ID } from './synapse-config';
+import { SYNAPSE_PACKAGE_ID, SYNAPSE_PACKAGE_HISTORY } from './synapse-config';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,9 +73,15 @@ export async function loadLiveVault({
     throw new Error(`AgentIdentity ${vaultId} is not a Move object`);
   }
   const moveContent = content as { dataType: 'moveObject'; type: string; fields: unknown };
-  if (!moveContent.type.startsWith(`${packageId}::agent::AgentIdentity`)) {
+  // Accept AgentIdentity objects minted under ANY historical package
+  // version. On Sui, the object's type is namespaced by the package
+  // that minted it, so v1-minted vaults stay typed as
+  // `<v1-pkg>::agent::AgentIdentity` even after the v2 upgrade —
+  // matching only the current package ID would orphan every vault
+  // older than the latest deploy.
+  if (!isAgentIdentityType(moveContent.type, packageId)) {
     throw new Error(
-      `Object ${vaultId} is type ${moveContent.type}, not the deployed Synapse AgentIdentity`,
+      `Object ${vaultId} is type ${moveContent.type}, not a Synapse AgentIdentity`,
     );
   }
 
@@ -359,4 +365,12 @@ function findFieldValue(record: Record<string, unknown>, key: string): unknown {
 
 function symbolFromTypeTag(typeTag: string): string {
   return typeTag.split('::').at(-1) ?? typeTag;
+}
+
+function isAgentIdentityType(typeStr: string, currentPackageId: string): boolean {
+  if (typeStr.startsWith(`${currentPackageId}::agent::AgentIdentity`)) return true;
+  for (const pkg of SYNAPSE_PACKAGE_HISTORY) {
+    if (typeStr.startsWith(`${pkg}::agent::AgentIdentity`)) return true;
+  }
+  return false;
 }
