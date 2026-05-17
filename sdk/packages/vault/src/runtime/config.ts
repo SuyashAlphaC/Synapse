@@ -9,8 +9,27 @@ import {
 } from './deepbook.js';
 
 export interface RuntimeConfig {
-  /** Deployed synapse_core package ID. */
+  /**
+   * Latest deployed synapse_core package ID. Used for:
+   *  - PTB targets (every Move call needs an explicit package address).
+   *  - Reading dynamic fields whose Move struct keys were defined in
+   *    the latest version (e.g. WalrusConsentKey, added in v3).
+   */
   packageId: string;
+  /**
+   * Every historical synapse_core package ID, newest first. Used to:
+   *  - Recognize on-chain objects (AgentIdentity, Strategy) that were
+   *    minted under an earlier version — their on-chain type tag is
+   *    namespaced by the package that minted them, forever.
+   *  - Tolerate the case where a dynamic field type was defined in
+   *    one version but the vault was minted under a different one.
+   *
+   * Read-side scanners walk this list and union results. Always
+   * include `packageId` at the head. Wired through
+   * `SYNAPSE_PACKAGE_HISTORY` env (comma-separated). When unset,
+   * defaults to `[packageId]`.
+   */
+  packageHistory: readonly string[];
   /** AgentIdentity object ID this runtime operates. */
   agentId: string;
   /** Sui RPC fullnode URL. */
@@ -86,6 +105,7 @@ export interface RuntimeConfig {
 
 export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   const packageId = required(env.SYNAPSE_PACKAGE_ID, 'SYNAPSE_PACKAGE_ID');
+  const packageHistory = parsePackageHistory(env.SYNAPSE_PACKAGE_HISTORY, packageId);
   const agentId = required(env.SYNAPSE_AGENT_ID, 'SYNAPSE_AGENT_ID');
   const sessionKeyPath = env.SYNAPSE_SESSION_KEY_PATH;
   const sessionKeyEnv = env.SYNAPSE_SESSION_KEY ?? env.SYNAPSE_SESSION_SECRET_BASE64;
@@ -109,6 +129,7 @@ export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig
 
   return {
     packageId,
+    packageHistory,
     agentId,
     fullnodeUrl,
     walrusNetwork,
@@ -169,6 +190,38 @@ function numberFromEnv(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) throw new Error(`Invalid numeric env value: ${value}`);
   return parsed;
+}
+
+/**
+ * Parse `SYNAPSE_PACKAGE_HISTORY` as a comma-separated list of 0x-prefixed
+ * package IDs, newest first. Always returns a non-empty array that
+ * starts with `packageId` (deduped + with the latest forced to the
+ * head so downstream code can safely use `history[0]`).
+ */
+function parsePackageHistory(
+  raw: string | undefined,
+  packageId: string,
+): readonly string[] {
+  const fromEnv = (raw ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  for (const entry of fromEnv) {
+    if (!/^0x[0-9a-fA-F]+$/.test(entry)) {
+      throw new Error(
+        `SYNAPSE_PACKAGE_HISTORY: "${entry}" is not a 0x-prefixed hex package ID`,
+      );
+    }
+  }
+  const seen = new Set<string>([packageId]);
+  const ordered: string[] = [packageId];
+  for (const entry of fromEnv) {
+    if (!seen.has(entry)) {
+      seen.add(entry);
+      ordered.push(entry);
+    }
+  }
+  return ordered;
 }
 
 /**

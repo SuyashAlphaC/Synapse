@@ -29,7 +29,17 @@ export async function loadAgentState(args: {
   client: SuiJsonRpcClient;
   agentId: string;
   packageId: string;
+  /**
+   * Every historical synapse_core package ID, newest first. Accept the
+   * on-chain object if its type tag is namespaced by ANY of these —
+   * Sui's upgrade model preserves an object's original-publish-pkg in
+   * its type forever, so a vault minted under v2 stays v2-typed even
+   * after upgrading to v3. Defaults to `[packageId]` for callers that
+   * don't pass history (matches old single-version behavior).
+   */
+  packageHistory?: readonly string[];
 }): Promise<OnChainAgentState> {
+  const history = args.packageHistory ?? [args.packageId];
   const object = await args.client.getObject({
     id: args.agentId,
     options: { showContent: true },
@@ -41,8 +51,11 @@ export async function loadAgentState(args: {
   if (!content || content.dataType !== 'moveObject') {
     throw new Error(`AgentIdentity ${args.agentId} is not a Move object`);
   }
-  if (!content.type.startsWith(`${args.packageId}::agent::AgentIdentity`)) {
-    throw new Error(`Object ${args.agentId} is ${content.type}, not this package AgentIdentity`);
+  if (!isAgentIdentityType(content.type, history)) {
+    throw new Error(
+      `Object ${args.agentId} is ${content.type}; none of the known synapse_core package versions own this type. ` +
+        `Configured history: ${history.join(', ')}.`,
+    );
   }
 
   const fields = asRecord(content.fields, 'AgentIdentity.fields');
@@ -71,10 +84,25 @@ export async function loadAgentState(args: {
   const acceptsWalrusExecution = await loadWalrusConsent(
     args.client,
     args.agentId,
-    args.packageId,
+    history,
   );
 
   return { identity, policy, balances, holdings, acceptsWalrusExecution };
+}
+
+/**
+ * Loose type check: the on-chain object's type tag must start with
+ * `<pkg>::agent::AgentIdentity` for one of the known historical
+ * package versions. Sui objects keep their *original* package-id
+ * namespace forever — a v2-minted vault is still typed v2 even after
+ * the package is upgraded to v3 — so a strict single-version check
+ * would orphan every vault older than the latest deploy.
+ */
+function isAgentIdentityType(typeTag: string, history: readonly string[]): boolean {
+  for (const pkg of history) {
+    if (typeTag.startsWith(`${pkg}::agent::AgentIdentity`)) return true;
+  }
+  return false;
 }
 
 /**
@@ -82,35 +110,42 @@ export async function loadAgentState(args: {
  * field on the AgentIdentity UID. Returns `false` when the dynamic
  * field is absent (every vault minted before the consent upgrade).
  *
- * The dynamic-field name on-chain is a Move struct `WalrusConsentKey`
- * with no fields, which Sui serializes as
- * `{ type: '<pkg>::agent::WalrusConsentKey', value: {} }`.
+ * Walks `history` because the field's Move struct key
+ * (`<pkg>::agent::WalrusConsentKey`) is namespaced by the package that
+ * *defined* the type. New consents are written under the latest
+ * package, but older runtimes or unusual upgrade paths could leave
+ * the field keyed by an older version — try each known version in
+ * turn (newest first) and stop on the first hit.
+ *
+ * Always returns `false` on any read failure: Walrus loading is opt-in
+ * and should never default to executing arbitrary marketplace code.
  */
 async function loadWalrusConsent(
   client: SuiJsonRpcClient,
   agentId: string,
-  packageId: string,
+  history: readonly string[],
 ): Promise<boolean> {
-  try {
-    const field = await client.getDynamicFieldObject({
-      parentId: agentId,
-      name: {
-        type: `${packageId}::agent::WalrusConsentKey`,
-        value: {},
-      },
-    });
-    if (field.error) return false;
-    const content = field.data?.content;
-    if (!content || content.dataType !== 'moveObject') return false;
-    const fields = asRecord(content.fields, 'WalrusConsent.fields');
-    const inner = asRecord(fields.value ?? fields, 'WalrusConsent.value');
-    const accept = inner['accept'] ?? inner['Accept'];
-    return typeof accept === 'boolean' ? accept : false;
-  } catch {
-    // Any error (object not found, parse failure) → default to no-consent.
-    // Walrus loading is opt-in; never default to dangerous behavior on read failure.
-    return false;
+  for (const pkg of history) {
+    try {
+      const field = await client.getDynamicFieldObject({
+        parentId: agentId,
+        name: {
+          type: `${pkg}::agent::WalrusConsentKey`,
+          value: {},
+        },
+      });
+      if (field.error) continue;
+      const content = field.data?.content;
+      if (!content || content.dataType !== 'moveObject') continue;
+      const fields = asRecord(content.fields, 'WalrusConsent.fields');
+      const inner = asRecord(fields.value ?? fields, 'WalrusConsent.value');
+      const accept = inner['accept'] ?? inner['Accept'];
+      if (typeof accept === 'boolean') return accept;
+    } catch {
+      // Try the next package version; absence is the common case, not an error.
+    }
   }
+  return false;
 }
 
 async function loadTreasuryBalances(

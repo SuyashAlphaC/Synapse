@@ -477,6 +477,7 @@ function makeReport(planId: string): AuditReport {
 function makeConfig(strategy: Strategy) {
   return {
     packageId: PACKAGE_ID,
+    packageHistory: [PACKAGE_ID],
     agentId: AGENT_ID,
     fullnodeUrl: 'https://fullnode.testnet.sui.io:443',
     walrusNetwork: 'testnet' as const,

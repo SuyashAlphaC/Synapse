@@ -143,6 +143,7 @@ export class VaultRuntime {
       client: this.#client,
       agentId: this.#config.agentId,
       packageId: this.#config.packageId,
+      packageHistory: this.#config.packageHistory,
     });
 
     if (agent.identity.revoked || currentEpoch >= agent.identity.expiryEpoch) {
