@@ -5,7 +5,7 @@
  */
 
 import type { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
-import { SYNAPSE_PACKAGE_ID } from './synapse-config';
+import { SYNAPSE_PACKAGE_ID, SYNAPSE_PACKAGE_HISTORY } from './synapse-config';
 import { fetchStrategy, type LiveStrategy } from './strategies';
 
 export interface OwnedStrategistCap {
@@ -29,32 +29,50 @@ export async function loadOwnedStrategistCaps({
   owner,
   packageId = SYNAPSE_PACKAGE_ID,
 }: LoadArgs): Promise<OwnedStrategistCap[]> {
-  const capType = `${packageId}::strategy_registry::StrategistCap`;
+  const packages =
+    SYNAPSE_PACKAGE_HISTORY.length > 0
+      ? SYNAPSE_PACKAGE_HISTORY
+      : [packageId];
   const out: OwnedStrategistCap[] = [];
+  const seen = new Set<string>();
 
-  let cursor: string | null | undefined;
-  do {
-    const page = await client.getOwnedObjects({
-      owner,
-      filter: { StructType: capType },
-      options: { showContent: true, showType: true },
-      ...(cursor ? { cursor } : {}),
-    });
-    for (const item of page.data) {
-      const content = item.data?.content;
-      if (!content || content.dataType !== 'moveObject') continue;
-      const fields = (content as { fields: unknown }).fields;
-      const strategyId = readStrategyIdField(fields);
-      const capId = item.data?.objectId;
-      if (!capId || !strategyId) continue;
-      const strategy = await fetchStrategy(client, packageId, strategyId);
-      if (!strategy) continue;
-      out.push({ capId, strategyId, strategy });
-    }
-    cursor = page.hasNextPage ? page.nextCursor : null;
-  } while (cursor);
+  // Iterate every historical package — StrategistCap objects keep the
+  // type they were created with, so caps minted under v1 don't match a
+  // v2-only StructType filter. Union by capId across packages.
+  for (const pkg of packages) {
+    const capType = `${pkg}::strategy_registry::StrategistCap`;
+    let cursor: string | null | undefined;
+    do {
+      let page;
+      try {
+        page = await client.getOwnedObjects({
+          owner,
+          filter: { StructType: capType },
+          options: { showContent: true, showType: true },
+          ...(cursor ? { cursor } : {}),
+        });
+      } catch {
+        break;
+      }
+      for (const item of page.data) {
+        const content = item.data?.content;
+        if (!content || content.dataType !== 'moveObject') continue;
+        const fields = (content as { fields: unknown }).fields;
+        const strategyId = readStrategyIdField(fields);
+        const capId = item.data?.objectId;
+        if (!capId || !strategyId || seen.has(capId)) continue;
+        seen.add(capId);
+        const strategy = await fetchStrategy(client, packageId, strategyId);
+        if (!strategy) continue;
+        out.push({ capId, strategyId, strategy });
+      }
+      cursor = page.hasNextPage ? page.nextCursor : null;
+    } while (cursor);
+  }
 
-  return out.sort((a, b) => Number(b.strategy.publishedAtEpoch - a.strategy.publishedAtEpoch));
+  return out.sort(
+    (a, b) => Number(b.strategy.publishedAtEpoch - a.strategy.publishedAtEpoch),
+  );
 }
 
 function readStrategyIdField(fields: unknown): string | null {

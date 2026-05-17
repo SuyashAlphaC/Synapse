@@ -10,7 +10,7 @@
  */
 
 import type { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
-import { SYNAPSE_PACKAGE_ID } from './synapse-config';
+import { SYNAPSE_PACKAGE_ID, SYNAPSE_PACKAGE_HISTORY } from './synapse-config';
 
 export const RISK_PROFILE = {
   Conservative: 0,
@@ -57,42 +57,65 @@ interface LoadStrategiesArgs {
 }
 
 /**
- * Fetch the marketplace catalog. We page through `StrategyPublishedEvent`
- * (instead of querying the global object soup) because it gives us a stable
+ * Fetch the marketplace catalog. Pages through `StrategyPublishedEvent`
+ * (instead of querying the global object soup) because it gives a stable
  * "every strategy that has ever existed" enumeration; deprecation is then
  * reflected via each strategy's live `active` flag.
+ *
+ * Sui events are typed by the package version that originally emitted
+ * them, so we query each historical package ID in turn and union the
+ * results — otherwise a v2 query misses every strategy published under
+ * v1. The current package ID is used to hydrate each Strategy object
+ * (struct type is stable across upgrades for non-additive changes).
  */
 export async function loadStrategies({
   client,
   packageId = SYNAPSE_PACKAGE_ID,
   limit = 200,
 }: LoadStrategiesArgs): Promise<LiveStrategy[]> {
-  const eventType = `${packageId}::strategy_registry::StrategyPublishedEvent`;
+  const packages =
+    SYNAPSE_PACKAGE_HISTORY.length > 0
+      ? SYNAPSE_PACKAGE_HISTORY
+      : [packageId];
   const seen = new Set<string>();
   const out: LiveStrategy[] = [];
 
-  let cursor: { txDigest: string; eventSeq: string } | null = null;
-  while (out.length < limit) {
-    const page = await client.queryEvents({
-      query: { MoveEventType: eventType },
-      cursor,
-      order: 'descending',
-      limit: Math.min(50, limit - out.length),
-    });
-    if (page.data.length === 0) break;
+  for (const pkg of packages) {
+    if (out.length >= limit) break;
+    const eventType = `${pkg}::strategy_registry::StrategyPublishedEvent`;
+    let cursor: { txDigest: string; eventSeq: string } | null = null;
+    while (out.length < limit) {
+      let page;
+      try {
+        page = await client.queryEvents({
+          query: { MoveEventType: eventType },
+          cursor,
+          order: 'descending',
+          limit: Math.min(50, limit - out.length),
+        });
+      } catch {
+        // Some historical packages may have been pruned or never emitted
+        // this event type. Skip and continue with the next package.
+        break;
+      }
+      if (page.data.length === 0) break;
 
-    for (const ev of page.data) {
-      const parsed = ev.parsedJson as { strategy_id?: string } | undefined;
-      const strategyId = parsed?.strategy_id;
-      if (!strategyId || seen.has(strategyId)) continue;
-      seen.add(strategyId);
+      for (const ev of page.data) {
+        const parsed = ev.parsedJson as { strategy_id?: string } | undefined;
+        const strategyId = parsed?.strategy_id;
+        if (!strategyId || seen.has(strategyId)) continue;
+        seen.add(strategyId);
 
-      const live = await fetchStrategy(client, packageId, strategyId);
-      if (live) out.push(live);
+        // Hydrate the Strategy object — the struct survives upgrades, so
+        // pass the *current* package ID for the type check.
+        const live = await fetchStrategy(client, packageId, strategyId);
+        if (live) out.push(live);
+        if (out.length >= limit) break;
+      }
+
+      if (!page.hasNextPage || !page.nextCursor) break;
+      cursor = page.nextCursor;
     }
-
-    if (!page.hasNextPage || !page.nextCursor) break;
-    cursor = page.nextCursor;
   }
 
   return out;
@@ -108,9 +131,22 @@ export async function fetchStrategy(
   const content = obj.data.content;
   if (content.dataType !== 'moveObject') return null;
   const move = content as { type: string; fields: unknown };
-  if (!move.type.startsWith(`${packageId}::strategy_registry::Strategy`)) return null;
+  // Accept Strategy objects from any historical package version — the
+  // struct is identical across upgrades, and Move objects keep their
+  // original package-id-namespaced type forever.
+  if (!isStrategyType(move.type, packageId)) return null;
 
   return parseStrategy(strategyId, asRecord(move.fields, 'Strategy.fields'));
+}
+
+function isStrategyType(typeStr: string, currentPackageId: string): boolean {
+  if (typeStr.startsWith(`${currentPackageId}::strategy_registry::Strategy`)) {
+    return true;
+  }
+  for (const pkg of SYNAPSE_PACKAGE_HISTORY) {
+    if (typeStr.startsWith(`${pkg}::strategy_registry::Strategy`)) return true;
+  }
+  return false;
 }
 
 function parseStrategy(id: string, f: Record<string, unknown>): LiveStrategy {

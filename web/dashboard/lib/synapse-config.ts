@@ -38,6 +38,23 @@ export const SYNAPSE_UPGRADE_CAP =
   '0x12d4f7b948f2433b2332b63955290ebfec5d674779fb3006c4c9ce831ad48563';
 
 /**
+ * Every package version we've ever deployed for `synapse_core`, newest
+ * first. Sui events are typed by the package that originally emitted
+ * them — so a Strategy published under v1 has v1-typed
+ * `StrategyPublishedEvent`, and querying only the v2 type misses it.
+ * Every read-side scan (marketplace, owned-vaults, audit timeline)
+ * iterates this list and unions results so the dashboard surfaces
+ * objects from every era.
+ *
+ * Append to the *front* when republishing/upgrading. Never remove
+ * entries — historical events remain forever.
+ */
+export const SYNAPSE_PACKAGE_HISTORY: readonly string[] = [
+  '0x5da36d892956a4659415e245126a3964dd5aa6cf19ec2fdf6332bf828a4c58ed', // v2 (operational budget)
+  '0x7b3f59e42edbf2189df644e63162d0b9a2c2984755bab9d3e9557c4ddd4aa67c', // v1 (marketplace + reputation)
+];
+
+/**
  * Optional hosted indexer GraphQL endpoint. When set, the audit timeline +
  * inspector prefer it over direct `queryEvents` calls — the GraphQL path
  * paginates better and supports cross-agent joins. When unset (default),
