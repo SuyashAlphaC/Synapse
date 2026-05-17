@@ -23,14 +23,20 @@ interface DangerZoneProps {
   vaultId?: string;
   /** Strategy this vault was minted against — required by `agent::revoke`. */
   strategyId?: string;
+  /** True when the vault is already revoked on-chain. Disables the button. */
+  revoked?: boolean;
 }
 
 /**
  * The "Revoke vault" button + confirmation modal. When a real `vaultId` is
  * provided this constructs an actual `agent::revoke` PTB and signs it via
  * the connected wallet — no simulation. Tx digest links out to suiscan.
+ *
+ * When the vault is already revoked, the button is disabled and the panel
+ * shows a clear "already revoked" state so the owner can't double-fire
+ * (which would abort EAlreadyRevoked at the Move VM layer anyway).
  */
-export function DangerZone({ vaultId, strategyId }: DangerZoneProps) {
+export function DangerZone({ vaultId, strategyId, revoked }: DangerZoneProps) {
   const account = useCurrentAccount();
   const suiClient = useSuiClient();
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
@@ -116,31 +122,47 @@ export function DangerZone({ vaultId, strategyId }: DangerZoneProps) {
             <CodeTag>danger zone</CodeTag>
           </span>
         </div>
-        <h3 className="font-display text-2xl font-bold">Revoke this vault</h3>
+        <h3 className="font-display text-2xl font-bold">
+          {revoked ? 'Vault revoked' : 'Revoke this vault'}
+        </h3>
         <p className="mt-2 max-w-sm text-sm leading-relaxed text-ink-soft">
-          One PTB flips <code className="font-mono text-[12px]">AgentIdentity.revoked</code> and
-          emits <code className="font-mono text-[12px]">AgentRevokedEvent</code>. The off-chain
-          indexer picks up the event to invalidate the MemWal delegate and queue Walrus eviction.
+          {revoked
+            ? 'AgentIdentity.revoked = true on-chain. The session key has no authority — every wallet::spend, deepbook_adapter::swap, and record_tick_performance call now aborts ERevoked at the Move VM. There is no un-revoke.'
+            : (
+              <>
+                One PTB flips <code className="font-mono text-[12px]">AgentIdentity.revoked</code> and
+                emits <code className="font-mono text-[12px]">AgentRevokedEvent</code>. The off-chain
+                indexer picks up the event to invalidate the MemWal delegate and queue Walrus eviction.
+              </>
+            )}
         </p>
         <div className="mt-5 flex flex-wrap items-center gap-3">
-          <button
-            className="btn-flat"
-            data-variant="danger"
-            onClick={() => {
-              setOpen(true);
-              setPhase('confirming');
-            }}
-            disabled={!vaultId || !account}
-            title={
-              !vaultId
-                ? 'No live vault on this dashboard view'
-                : !account
-                  ? 'Connect a wallet to enable revoke'
-                  : 'Revoke this vault on-chain'
-            }
-          >
-            Revoke vault
-          </button>
+          {revoked ? (
+            <span
+              className="inline-flex items-center gap-2 rounded-md border-2 border-ink bg-paper px-3 py-2 font-mono text-[11px] uppercase tracking-[0.16em] text-accent-orange"
+            >
+              <span className="h-2 w-2 rounded-full bg-accent-orange" /> revoked · immutable
+            </span>
+          ) : (
+            <button
+              className="btn-flat"
+              data-variant="danger"
+              onClick={() => {
+                setOpen(true);
+                setPhase('confirming');
+              }}
+              disabled={!vaultId || !account}
+              title={
+                !vaultId
+                  ? 'No live vault on this dashboard view'
+                  : !account
+                    ? 'Connect a wallet to enable revoke'
+                    : 'Revoke this vault on-chain'
+              }
+            >
+              Revoke vault
+            </button>
+          )}
           <button
             className="btn-flat"
             data-variant="ghost"

@@ -76,16 +76,39 @@ export function DashboardShell() {
         <MicroCard label="Strategy revs" value="1.0.0" accent="var(--accent-yellow)" />
       </section>
 
+      {live?.identity.revoked && (
+        <div
+          className="mt-6 flex flex-wrap items-center gap-3 rounded-md border-2 border-ink bg-paper-strong px-5 py-3 shadow-[2px_2px_0_0_var(--ink)]"
+          style={{ borderColor: 'var(--accent-orange)' }}
+        >
+          <span
+            className="inline-flex h-2.5 w-2.5 rounded-full"
+            style={{ backgroundColor: 'var(--accent-orange)' }}
+          />
+          <CodeTag>revoked</CodeTag>
+          <span className="font-display text-sm">
+            This vault is permanently revoked. The agent's session key has no on-chain
+            authority. Deposits, holdings reads, and audit history remain queryable; mutations
+            abort at the Move VM.
+          </span>
+        </div>
+      )}
+
       {liveVault && (
         <div className="mt-6 grid gap-4 md:grid-cols-[1.4fr_1fr]">
           <RuntimeHealthPanel vaultId={liveVault.agentId} />
           <div className="flex flex-wrap items-center gap-3 rounded-md border-2 border-ink bg-paper-strong px-5 py-3 shadow-[2px_2px_0_0_var(--ink)]">
             <CodeTag>owner</CodeTag>
             <span className="font-display text-sm">
-              Log a manual check-in — appears in the audit timeline.
+              {live?.identity.revoked
+                ? 'Owner attestations disabled — vault is revoked.'
+                : 'Log a manual check-in — appears in the audit timeline.'}
             </span>
             <span className="ml-auto">
-              <RunTickButton vaultId={liveVault.agentId} />
+              <RunTickButton
+                vaultId={liveVault.agentId}
+                {...(live?.identity.revoked ? { revoked: true } : {})}
+              />
             </span>
           </div>
         </div>
@@ -117,6 +140,7 @@ export function DashboardShell() {
           <DangerZone
             {...(liveVault ? { vaultId: liveVault.agentId } : {})}
             {...(live?.identity.strategyId ? { strategyId: live.identity.strategyId } : {})}
+            {...(live?.identity.revoked ? { revoked: true } : {})}
           />
         </div>
       </div>

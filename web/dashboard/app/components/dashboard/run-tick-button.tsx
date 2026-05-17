@@ -11,6 +11,9 @@ import { shortenHash } from '@/lib/format';
 
 interface RunTickButtonProps {
   vaultId: string;
+  /** True when the vault is revoked — disables the button to stop
+   *  misleading attestations after the vault has been killed. */
+  revoked?: boolean;
 }
 
 /**
@@ -28,7 +31,7 @@ interface RunTickButtonProps {
  * the vault" attestations that show up in the audit timeline alongside
  * the agent's automated decisions.
  */
-export function RunTickButton({ vaultId }: RunTickButtonProps) {
+export function RunTickButton({ vaultId, revoked }: RunTickButtonProps) {
   const account = useCurrentAccount();
   const suiClient = useSuiClient();
   const { mutateAsync: signAndExecute, isPending } = useSignAndExecuteTransaction();
@@ -106,14 +109,20 @@ export function RunTickButton({ vaultId }: RunTickButtonProps) {
         className="btn-flat"
         data-variant="primary"
         onClick={runTick}
-        disabled={isPending || !account}
+        disabled={isPending || !account || revoked}
         title={
-          !account
-            ? 'Connect a wallet to enable owner attestations'
-            : 'Sign an attestation::log_owner_action — visible in audit timeline'
+          revoked
+            ? 'Vault is revoked — owner attestations no longer apply'
+            : !account
+              ? 'Connect a wallet to enable owner attestations'
+              : 'Sign an attestation::log_owner_action — visible in audit timeline'
         }
       >
-        {isPending ? 'Signing…' : 'Log owner check-in'}
+        {isPending
+          ? 'Signing…'
+          : revoked
+            ? 'Vault revoked'
+            : 'Log owner check-in'}
       </button>
     </div>
   );
