@@ -4,15 +4,22 @@ import { useState } from 'react';
 import {
   useCurrentAccount,
   useSignAndExecuteTransaction,
+  useSignPersonalMessage,
   useSuiClient,
 } from '@mysten/dapp-kit';
+import { addDelegateKey } from '@mysten-incubation/memwal/account';
 import { useQueryClient } from '@tanstack/react-query';
 import { Transaction } from '@mysten/sui/transactions';
 import { CodeTag } from '../ui/code-tag';
 import { Modal } from '../ui/modal';
 import { useToast } from '../ui/toast';
 import { formatUsd, shortenAddress, shortenHash } from '@/lib/format';
-import { synapseTarget, explorerTxUrl } from '@/lib/synapse-config';
+import {
+  synapseTarget,
+  explorerTxUrl,
+  MEMWAL_PACKAGE_ID,
+  NETWORK,
+} from '@/lib/synapse-config';
 import { buildSetWalrusConsentPTB } from '@/lib/ptb';
 import type { PricedVaultState } from '../../hooks/use-live-vault';
 import { SAMPLE_VAULT } from '@/lib/sample-data';
@@ -45,7 +52,24 @@ type EditMode =
   | 'remove-pkg'
   | 'op-cap'
   | 'walrus-consent'
+  | 'memwal-register'
   | null;
+
+/**
+ * Classify the on-chain `memwal_delegate_key_id` field:
+ *   - 32 bytes → properly-shaped public key, the post-fix format
+ *   - 64 bytes → ASCII-hex of a private key (legacy leak — needs key rotation)
+ *   - 0 bytes  → MemWal skipped at mint
+ *   - other    → unrecognised
+ */
+type MemwalDelegateStatus = 'public-key' | 'leaked-private-key' | 'skipped' | 'unknown';
+
+function classifyDelegateKey(bytes: Uint8Array): MemwalDelegateStatus {
+  if (bytes.length === 0) return 'skipped';
+  if (bytes.length === 32) return 'public-key';
+  if (bytes.length === 64) return 'leaked-private-key';
+  return 'unknown';
+}
 
 export function PolicyPanel({ live }: PolicyPanelProps) {
   const [editMode, setEditMode] = useState<EditMode>(null);
@@ -161,6 +185,53 @@ export function PolicyPanel({ live }: PolicyPanelProps) {
             editLabel={live.identity.operationalCapPerEpoch === 0n ? '+ enable' : 'Update'}
           />
         )}
+        {live && (() => {
+          const status = classifyDelegateKey(live.identity.memwalDelegateKeyId);
+          const accountIdUtf8 = new TextDecoder('utf-8', { fatal: false }).decode(
+            live.identity.memwalAccountId,
+          );
+          const hasAccount = accountIdUtf8.startsWith('0x');
+          let value: string;
+          let hint: string;
+          let editLabel: string | null = null;
+          let editMode: EditMode | null = null;
+          switch (status) {
+            case 'public-key':
+              value = hasAccount
+                ? 'Registered shape — may need relayer registration'
+                : 'Public key on-chain';
+              hint = hasAccount
+                ? `MemWal account ${shortenAddress(accountIdUtf8)} · click Register if a tick fails MemWal auth`
+                : 'MemWal account ID missing — no relayer registration possible';
+              editLabel = hasAccount ? 'Register' : null;
+              editMode = hasAccount ? 'memwal-register' : null;
+              break;
+            case 'leaked-private-key':
+              value = '⚠ Legacy: private key leaked on-chain';
+              hint =
+                'Rotate this delegate in your MemWal dashboard immediately; this vault should be revoked + re-minted.';
+              break;
+            case 'skipped':
+              value = 'Skipped at mint';
+              hint = 'No MemWal persistence; DCA/EMA counters reset every tick.';
+              break;
+            default:
+              value = `Unknown shape (${live.identity.memwalDelegateKeyId.length} bytes)`;
+              hint = 'Unexpected delegate key format — investigate.';
+          }
+          return (
+            <PolicyRow
+              label="MemWal delegate"
+              value={value}
+              hint={hint}
+              accent="var(--accent-coral)"
+              {...(editLabel && editMode
+                ? { onEdit: () => setEditMode(editMode), editLabel }
+                : {})}
+            />
+          );
+        })()}
+
         {live && (
           <PolicyRow
             label="Walrus execution"
@@ -222,6 +293,12 @@ export function PolicyPanel({ live }: PolicyPanelProps) {
       )}
       {live && editMode === 'walrus-consent' && (
         <WalrusConsentModal
+          identity={live.identity}
+          onClose={() => setEditMode(null)}
+        />
+      )}
+      {live && editMode === 'memwal-register' && (
+        <MemwalRegisterModal
           identity={live.identity}
           onClose={() => setEditMode(null)}
         />
@@ -932,6 +1009,151 @@ function WalrusConsentModal({
         </div>
       )}
     </Modal>
+  );
+}
+
+function MemwalRegisterModal({
+  identity,
+  onClose,
+}: {
+  identity: PricedVaultState['identity'];
+  onClose: () => void;
+}) {
+  const account = useCurrentAccount();
+  const suiClient = useSuiClient();
+  const { mutateAsync: signAndExecute, isPending } = useSignAndExecuteTransaction();
+  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
+  const [digest, setDigest] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const accountIdUtf8 = new TextDecoder('utf-8', { fatal: false }).decode(
+    identity.memwalAccountId,
+  );
+  const publicKeyHex = Array.from(identity.memwalDelegateKeyId)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  async function go() {
+    if (!account) {
+      setError('Connect a wallet first.');
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      const result = await addDelegateKey({
+        packageId: MEMWAL_PACKAGE_ID,
+        accountId: accountIdUtf8,
+        publicKey: identity.memwalDelegateKeyId,
+        label: `Synapse Vault ${shortenHash(identity.id)} (retry)`,
+        suiNetwork: NETWORK === 'mainnet' ? 'mainnet' : 'testnet',
+        suiClient,
+        walletSigner: {
+          address: account.address,
+          signAndExecuteTransaction: async ({ transaction }) => {
+            const r = await signAndExecute({ transaction });
+            return { digest: r.digest };
+          },
+          signPersonalMessage: async ({ message }) => {
+            const r = await signPersonalMessage({ message });
+            return { signature: r.signature };
+          },
+        },
+      });
+      setDigest(result.digest);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const pending = submitting || isPending;
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={digest ? 'Delegate registered with MemWal' : 'Register MemWal delegate'}
+      accent="var(--accent-coral)"
+      footer={
+        digest ? (
+          <button type="button" className="btn-flat" data-variant="primary" onClick={onClose}>
+            Close
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="btn-flat"
+              data-variant="ghost"
+              onClick={onClose}
+              disabled={pending}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn-flat"
+              data-variant="primary"
+              onClick={go}
+              disabled={pending || !account}
+            >
+              {pending ? 'Signing…' : 'Register on-chain'}
+            </button>
+          </>
+        )
+      }
+    >
+      {digest ? (
+        <div className="space-y-3 text-sm">
+          <DoneBlock digest={digest} />
+          <p className="text-ink-soft">
+            The MemWal relayer now accepts signatures from this vault&rsquo;s delegate. The
+            runtime&rsquo;s next tick will successfully recall + remember.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3 text-sm">
+          <p className="text-ink-soft">
+            Calls{' '}
+            <code className="font-mono text-[11px]">memwal::account::add_delegate_key</code>{' '}
+            against your MemWal account, authorizing this vault&rsquo;s on-chain delegate
+            public key. Owner-signed via your connected wallet. Use this when:
+          </p>
+          <ul className="ml-4 list-disc space-y-1 text-xs text-ink-soft">
+            <li>The mint-time registration failed (e.g. SDK version mismatch).</li>
+            <li>You rotated your MemWal account or moved this vault to a new account.</li>
+            <li>Runtime ticks are aborting with MemWal authentication errors.</li>
+          </ul>
+          <dl className="rounded-sm border border-divider bg-paper p-3">
+            <RowKv label="MemWal account" value={shortenAddress(accountIdUtf8)} />
+            <RowKv
+              label="Delegate public key"
+              value={`${publicKeyHex.slice(0, 12)}…${publicKeyHex.slice(-6)}`}
+            />
+            <RowKv label="Label" value={`Synapse Vault ${shortenHash(identity.id)} (retry)`} />
+          </dl>
+          {error && (
+            <pre className="overflow-x-auto rounded-sm border border-divider bg-paper p-3 font-mono text-[10px] text-ink-soft">
+              {error}
+            </pre>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function RowKv({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b border-divider/50 py-1 last:border-0">
+      <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-ink-mute">
+        {label}
+      </span>
+      <span className="num font-mono text-[10px] text-ink">{value}</span>
+    </div>
   );
 }
 
