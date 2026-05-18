@@ -305,6 +305,10 @@ export function MintWizard() {
             publicKey: memwalDelegate.publicKeyBytes,
             label: `Synapse Vault ${shortenHash(agentId)}`,
             suiNetwork: NETWORK === 'mainnet' ? 'mainnet' : 'testnet',
+            // @mysten/sui v2.6.0+ stopped auto-creating a SuiClient
+            // inside addDelegateKey — reuse the dapp-kit one we
+            // already have in scope.
+            suiClient,
             walletSigner: {
               address: account.address,
               signAndExecuteTransaction: async ({ transaction }) => {
