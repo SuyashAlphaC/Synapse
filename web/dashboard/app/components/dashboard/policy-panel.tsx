@@ -33,7 +33,10 @@ const SAMPLE_POLICY = {
   sessionHint: 'Active 27 days · rotatable',
 };
 
-const DEEPBOOK_TESTNET_PKG = '0xcaf6ba059d539a97646d47f0b9ddf843e138d215e2a12ca1f4585d386f7aec3a';
+// Canonical DeepBookV3 testnet package, sourced from
+// @mysten/deepbook-v3 (testnetPackageIds.DEEPBOOK_PACKAGE_ID).
+// Update when the SDK ships a new package upgrade.
+const DEEPBOOK_TESTNET_PKG = '0x22be4cade64bf2d02412c7e8d0e8beea2f78828b948118d46735315409371a3c';
 
 type EditMode =
   | 'spend'
