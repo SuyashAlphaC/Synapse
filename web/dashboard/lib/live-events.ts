@@ -7,7 +7,7 @@
 
 import type { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import type { TimelineEntry } from './sample-data';
-import { SYNAPSE_INDEXER_URL, SYNAPSE_PACKAGE_ID } from './synapse-config';
+import { SYNAPSE_INDEXER_URL, SYNAPSE_PACKAGE_ID, SYNAPSE_PACKAGE_HISTORY } from './synapse-config';
 
 /** The Sui RPC client surface we need — narrowed to just `queryEvents`. */
 type LiveEventsClient = Pick<SuiJsonRpcClient, 'queryEvents'>;
@@ -71,34 +71,48 @@ export async function loadLiveTimeline(opts: LoadEventsOptions): Promise<Timelin
     }
   }
 
+  // Events are namespaced by the package version that ORIGINALLY
+  // emitted them — a tick recorded by v3's runtime against a v2
+  // module still has v2's type tag. Walk every historical package
+  // per module; dedupe by `(txDigest, eventSeq)` since the same
+  // event can't appear twice across versions.
+  const packages =
+    SYNAPSE_PACKAGE_HISTORY.length > 0 ? SYNAPSE_PACKAGE_HISTORY : [SYNAPSE_PACKAGE_ID];
   const entries: TimelineEntry[] = [];
-  for (const moduleName of MODULES) {
-    const pageLimit = Math.min(50, limit);
-    try {
-      const page = await client.queryEvents({
-        query: { MoveModule: { package: SYNAPSE_PACKAGE_ID, module: moduleName } },
-        cursor: null,
-        limit: pageLimit,
-        order: 'descending',
-      });
-      for (const ev of page.data) {
-        const meta = classifyType(ev.type);
-        if (!meta) continue;
-        const parsed = ev.parsedJson as Record<string, unknown>;
-        if (agentId && !matchesAgent(parsed, agentId)) continue;
-        entries.push({
-          id: `${ev.id.txDigest}-${ev.id.eventSeq}`,
-          vaultId: agentId ?? '',
-          kind: meta.kind,
-          description: describe(meta.kind, parsed),
-          timestamp: Number(ev.timestampMs ?? Date.now()),
-          txDigest: ev.id.txDigest,
-          accentColor: meta.accent,
+  const seen = new Set<string>();
+
+  for (const pkg of packages) {
+    for (const moduleName of MODULES) {
+      const pageLimit = Math.min(50, limit);
+      try {
+        const page = await client.queryEvents({
+          query: { MoveModule: { package: pkg, module: moduleName } },
+          cursor: null,
+          limit: pageLimit,
+          order: 'descending',
         });
+        for (const ev of page.data) {
+          const id = `${ev.id.txDigest}-${ev.id.eventSeq}`;
+          if (seen.has(id)) continue;
+          const meta = classifyType(ev.type);
+          if (!meta) continue;
+          const parsed = ev.parsedJson as Record<string, unknown>;
+          if (agentId && !matchesAgent(parsed, agentId)) continue;
+          seen.add(id);
+          entries.push({
+            id,
+            vaultId: agentId ?? '',
+            kind: meta.kind,
+            description: describe(meta.kind, parsed),
+            timestamp: Number(ev.timestampMs ?? Date.now()),
+            txDigest: ev.id.txDigest,
+            accentColor: meta.accent,
+          });
+        }
+      } catch (err) {
+        // Per-module / per-package failures shouldn't kill the load.
+        console.warn(`[synapse-events] ${pkg.slice(0, 10)}…/${moduleName} query failed`, err);
       }
-    } catch (err) {
-      // Per-module failures shouldn't kill the whole load.
-      console.warn(`[synapse-events] ${moduleName} query failed`, err);
     }
   }
 

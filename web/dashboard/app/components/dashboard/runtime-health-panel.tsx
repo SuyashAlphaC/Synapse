@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSuiClient } from '@mysten/dapp-kit';
 import { useQuery } from '@tanstack/react-query';
 import { CodeTag } from '../ui/code-tag';
-import { SYNAPSE_PACKAGE_ID, explorerTxUrl } from '@/lib/synapse-config';
+import { SYNAPSE_PACKAGE_ID, SYNAPSE_PACKAGE_HISTORY, explorerTxUrl } from '@/lib/synapse-config';
 import { shortenHash, timeAgo } from '@/lib/format';
 
 interface RuntimeHealthPanelProps {
@@ -46,38 +46,60 @@ export function RuntimeHealthPanel({ vaultId }: RuntimeHealthPanelProps) {
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
     queryFn: async (): Promise<LatestTick | null> => {
-      const eventType = `${SYNAPSE_PACKAGE_ID}::strategy_registry::TickRecordedEvent`;
-      // Paginate descending and pick the first event whose vault_id matches.
-      let cursor: { txDigest: string; eventSeq: string } | null = null;
-      for (let pageIdx = 0; pageIdx < 6; pageIdx++) {
-        const page = await client.queryEvents({
-          query: { MoveEventType: eventType },
-          cursor,
-          order: 'descending',
-          limit: 50,
-        });
-        for (const ev of page.data) {
-          const parsed = ev.parsedJson as
-            | {
-                vault_id?: string;
-                alpha_bps_pos?: string | number;
-                alpha_bps_neg?: string | number;
-                epoch?: string | number;
+      // TickRecordedEvent's on-chain type tag is namespaced by the
+      // package that *first defined* it (v1 strategy_registry). A
+      // query for the latest package's type returns zero — same
+      // multi-version trap loadStrategies/loadOwnedVaults already
+      // handle. Walk every historical package; keep the newest hit.
+      const packages =
+        SYNAPSE_PACKAGE_HISTORY.length > 0 ? SYNAPSE_PACKAGE_HISTORY : [SYNAPSE_PACKAGE_ID];
+      let best: LatestTick | null = null;
+
+      for (const pkg of packages) {
+        const eventType = `${pkg}::strategy_registry::TickRecordedEvent`;
+        let cursor: { txDigest: string; eventSeq: string } | null = null;
+        try {
+          for (let pageIdx = 0; pageIdx < 6; pageIdx++) {
+            const page = await client.queryEvents({
+              query: { MoveEventType: eventType },
+              cursor,
+              order: 'descending',
+              limit: 50,
+            });
+            for (const ev of page.data) {
+              const parsed = ev.parsedJson as
+                | {
+                    vault_id?: string;
+                    alpha_bps_pos?: string | number;
+                    alpha_bps_neg?: string | number;
+                    epoch?: string | number;
+                  }
+                | undefined;
+              if (parsed?.vault_id !== vaultId) continue;
+              const ts = ev.timestampMs ? Number(ev.timestampMs) : 0;
+              if (best === null || ts > best.timestampMs) {
+                best = {
+                  timestampMs: ts,
+                  digest: ev.id.txDigest,
+                  alphaBpsPos: Number(parsed?.alpha_bps_pos ?? 0),
+                  alphaBpsNeg: Number(parsed?.alpha_bps_neg ?? 0),
+                  epoch: BigInt(parsed?.epoch ?? 0),
+                };
               }
-            | undefined;
-          if (parsed?.vault_id !== vaultId) continue;
-          return {
-            timestampMs: ev.timestampMs ? Number(ev.timestampMs) : 0,
-            digest: ev.id.txDigest,
-            alphaBpsPos: Number(parsed?.alpha_bps_pos ?? 0),
-            alphaBpsNeg: Number(parsed?.alpha_bps_neg ?? 0),
-            epoch: BigInt(parsed?.epoch ?? 0),
-          };
+              // First (newest) match in this package version is
+              // enough — pages were descending, no later event in
+              // this package can be newer.
+              break;
+            }
+            if (page.data.length === 0 || !page.hasNextPage || !page.nextCursor) break;
+            cursor = page.nextCursor;
+          }
+        } catch {
+          // Skip packages the indexer hasn't backfilled or that
+          // never emitted this event type.
         }
-        if (!page.hasNextPage || !page.nextCursor) break;
-        cursor = page.nextCursor;
       }
-      return null;
+      return best;
     },
   });
 
