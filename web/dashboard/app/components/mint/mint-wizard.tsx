@@ -6,8 +6,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   useCurrentAccount,
   useSignAndExecuteTransaction,
+  useSignPersonalMessage,
   useSuiClient,
 } from '@mysten/dapp-kit';
+import { addDelegateKey } from '@mysten-incubation/memwal/account';
 import { CodeTag } from '../ui/code-tag';
 import { WalletButton } from '../ui/wallet-button';
 import { useToast } from '../ui/toast';
@@ -16,7 +18,7 @@ import {
   generateSessionKeypair,
   generateMemwalDelegateKeypair,
 } from '@/lib/ptb';
-import { explorerTxUrl } from '@/lib/synapse-config';
+import { explorerTxUrl, MEMWAL_PACKAGE_ID, NETWORK } from '@/lib/synapse-config';
 import { shortenAddress, shortenHash } from '@/lib/format';
 import { recordVault } from '@/lib/local-vaults';
 import { RISK_LABEL, requiresWalrusConsent, type LiveStrategy } from '@/lib/strategies';
@@ -94,6 +96,7 @@ export function MintWizard() {
   const account = useCurrentAccount();
   const suiClient = useSuiClient();
   const { mutateAsync: signAndExecute, isPending: signing } = useSignAndExecuteTransaction();
+  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
   const toast = useToast();
   const [activeStep, setActiveStep] = useState(0);
   const [form, setForm] = useState<MintForm>({
@@ -282,6 +285,59 @@ export function MintWizard() {
           : `Tx ${shortenHash(result.digest)} confirmed`,
         durationMs: 8000,
       });
+
+      // Register the freshly-generated delegate with the user's
+      // MemWal account so the runtime's recall/remember signatures
+      // are accepted by the relayer. Owner-signed, owner-only — uses
+      // the same wallet that just signed the mint. Skipped when the
+      // user opted out of MemWal at mint time.
+      if (agentId && memwalDelegate && form.memwalAccountId.trim()) {
+        toast.push({
+          variant: 'info',
+          title: 'Registering delegate with MemWal',
+          body: 'Approve a second signature in your wallet to authorize the runtime.',
+          durationMs: 8000,
+        });
+        try {
+          const regResult = await addDelegateKey({
+            packageId: MEMWAL_PACKAGE_ID,
+            accountId: form.memwalAccountId.trim(),
+            publicKey: memwalDelegate.publicKeyBytes,
+            label: `Synapse Vault ${shortenHash(agentId)}`,
+            suiNetwork: NETWORK === 'mainnet' ? 'mainnet' : 'testnet',
+            walletSigner: {
+              address: account.address,
+              signAndExecuteTransaction: async ({ transaction }) => {
+                const r = await signAndExecute({ transaction });
+                return { digest: r.digest };
+              },
+              signPersonalMessage: async ({ message }) => {
+                const r = await signPersonalMessage({ message });
+                return { signature: r.signature };
+              },
+            },
+          });
+          toast.push({
+            variant: 'success',
+            title: 'Delegate registered with MemWal',
+            body: `Runtime is now authorized. tx ${shortenHash(regResult.digest)}`,
+            durationMs: 7000,
+          });
+        } catch (err) {
+          // Non-fatal — the vault itself is minted and usable. The
+          // owner can re-attempt registration later via the Policy
+          // panel. Surface the actual error so they can debug
+          // (wrong account ID, account not owned by this wallet, etc).
+          toast.push({
+            variant: 'warn',
+            title: 'Delegate registration failed',
+            body:
+              (err instanceof Error ? err.message : String(err)).slice(0, 220) +
+              ' — vault is minted; runtime ticks will work but MemWal recall/remember will fail until you re-register from the Policy panel.',
+            durationMs: 12000,
+          });
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.push({
