@@ -17,8 +17,12 @@
  * of the runtime expects.
  */
 
-import { createHash } from 'node:crypto';
 import type { WalrusUploadResult } from '@synapse-core/client';
+
+async function sha256Bytes(input: Uint8Array): Promise<Uint8Array> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', input as BufferSource);
+  return new Uint8Array(digest);
+}
 
 const WALRUS_TESTNET_PUBLISHER = 'https://publisher.walrus-testnet.walrus.space';
 const WALRUS_MAINNET_PUBLISHER = 'https://publisher.walrus-mainnet.walrus.space';
@@ -67,10 +71,10 @@ export async function uploadViaPublisher(args: UploadViaPublisherArgs): Promise<
   }
   const json = (await response.json()) as unknown;
   const parsed = parsePublisherResponse(json);
-  const sha256 = createHash('sha256').update(args.bytes).digest();
+  const sha256 = await sha256Bytes(args.bytes);
   return {
     blobId: parsed.blobId,
-    sha256: new Uint8Array(sha256),
+    sha256,
     sizeBytes: args.bytes.length,
     blobObjectId: parsed.blobObjectId,
     registeredEpoch: parsed.endEpoch ?? 0,

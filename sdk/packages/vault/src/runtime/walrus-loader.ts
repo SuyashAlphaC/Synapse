@@ -21,9 +21,19 @@
  * `process`, `require`, filesystem, network. Tracked as a follow-up.
  */
 
-import { createHash } from 'node:crypto';
 import type { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import type { Strategy } from '../types.js';
+
+// Use the universal `globalThis.crypto.subtle` for sha256 so this
+// module works in both Node 20+ and browsers / Web Workers — no
+// `node:crypto` import means the bundle can ship into the
+// dashboard's in-browser runtime without polyfills.
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes as BufferSource);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
 
 const WALRUS_TESTNET_AGGREGATOR = 'https://aggregator.walrus-testnet.walrus.space';
 const WALRUS_MAINNET_AGGREGATOR = 'https://aggregator.walrus-mainnet.walrus.space';
@@ -85,7 +95,7 @@ export async function loadStrategyFromWalrus(args: {
   // Anyone could host arbitrary bytes at a blob ID they don't own;
   // only the sha256 binds the running code to what the strategist
   // signed for at publish time.
-  const actualHashHex = createHash('sha256').update(bytes).digest('hex');
+  const actualHashHex = await sha256Hex(bytes);
   if (actualHashHex !== meta.codeHashHex) {
     throw new WalrusStrategyError(
       `Strategy ${args.strategyId}: Walrus bundle sha256 ${actualHashHex} ` +

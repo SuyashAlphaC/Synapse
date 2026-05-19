@@ -1,4 +1,9 @@
-import { setTimeout as delay } from 'node:timers/promises';
+// Tiny universal `delay` — `node:timers/promises` is Node-only and
+// would break the in-browser runtime build. `globalThis.setTimeout`
+// works identically in Node and browsers / Web Workers.
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
 import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import type { SuiTransactionBlockResponse } from '@mysten/sui/jsonRpc';
 import { Transaction } from '@mysten/sui/transactions';
