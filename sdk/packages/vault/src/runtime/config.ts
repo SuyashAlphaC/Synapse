@@ -118,7 +118,18 @@ export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig
   const walrusNetwork = parseWalrusNetwork(env.SYNAPSE_WALRUS_NETWORK);
 
   const delegateKey = env.MEMWAL_DELEGATE_KEY ?? env.SYNAPSE_MEMWAL_DELEGATE_KEY;
-  const relayerUrl = env.MEMWAL_RELAYER_URL ?? env.SYNAPSE_MEMWAL_RELAYER_URL;
+  // Default the relayer URL based on the Walrus network: MemWal runs
+  // separate endpoints for testnet vs mainnet, and the SDK's built-in
+  // default points at production (mainnet). Without this, testnet
+  // runtimes silently hit the wrong relayer and get 401s on every
+  // recall/remember call.
+  //   - testnet → https://relayer.staging.memwal.ai
+  //   - mainnet → https://relayer.memwal.ai (SDK default; left undefined)
+  // Operator can override via MEMWAL_RELAYER_URL for self-hosted setups.
+  const relayerUrl =
+    env.MEMWAL_RELAYER_URL ??
+    env.SYNAPSE_MEMWAL_RELAYER_URL ??
+    (walrusNetwork === 'testnet' ? 'https://relayer.staging.memwal.ai' : undefined);
   const memwal =
     delegateKey !== undefined
       ? {

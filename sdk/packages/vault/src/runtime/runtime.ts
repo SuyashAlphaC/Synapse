@@ -283,7 +283,19 @@ export class VaultRuntime {
         ...(this.#config.sessionKeyEnv ? { sessionKeyEnv: this.#config.sessionKeyEnv } : {}),
       });
       if (delegateFromFile) {
-        memwalConfig = { delegateKeyHex: delegateFromFile };
+        // Apply the same network-aware relayer URL default as
+        // loadFromEnv (testnet → staging endpoint, mainnet → SDK
+        // default). Without this, the file-bundled delegate would
+        // sign API calls for the WRONG relayer and quietly fail
+        // every recall/remember on testnet.
+        const defaultRelayerUrl =
+          this.#config.walrusNetwork === 'testnet'
+            ? 'https://relayer.staging.memwal.ai'
+            : undefined;
+        memwalConfig = {
+          delegateKeyHex: delegateFromFile,
+          ...(defaultRelayerUrl !== undefined ? { relayerUrl: defaultRelayerUrl } : {}),
+        };
       }
     }
     const memwal =

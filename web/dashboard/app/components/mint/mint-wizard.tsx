@@ -870,28 +870,25 @@ function MemWalStep({
       {onTestnet && (
         <div
           className="rounded-sm border-2 border-ink bg-paper-strong p-3 text-xs leading-relaxed"
-          style={{ borderColor: 'var(--accent-orange)' }}
+          style={{ borderColor: 'var(--accent-blue)' }}
         >
           <p className="font-display text-sm font-semibold text-ink">
-            ⚠ MemWal has no public testnet relayer
+            ⓘ Testnet uses MemWal&rsquo;s staging relayer
           </p>
           <p className="mt-1.5 text-ink-soft">
-            The hosted relayer at{' '}
-            <code className="font-mono text-[10px]">relayer.memwal.ai</code> is
-            mainnet-only (its <code className="font-mono text-[10px]">/config</code>{' '}
-            returns <code className="font-mono text-[10px]">network: &quot;mainnet&quot;</code>).
-            On testnet you can mint an account + register a delegate on-chain and the
-            wiring works end-to-end, but every <code className="font-mono text-[10px]">recall</code>{' '}
-            and <code className="font-mono text-[10px]">remember</code> the runtime makes
-            will hit a 401 from the relayer.
-          </p>
-          <p className="mt-2 text-ink-soft">
-            <strong>Recommended for this demo:</strong> check{' '}
-            <em>&ldquo;Skip — no memory&rdquo;</em> below. The runtime degrades gracefully:
-            DCA fires every tick instead of every Nth (no counter persistence), and
-            every other system (Walrus loader, DeepBook swap, royalty, on-chain audit)
-            stays fully functional. On mainnet, the same wizard + runtime light up
-            MemWal automatically with zero code changes.
+            The runtime automatically points at{' '}
+            <code className="font-mono text-[10px]">relayer.staging.memwal.ai</code>{' '}
+            (MemWal&rsquo;s public testnet endpoint) when running against Sui testnet —
+            it speaks the testnet MemWal package
+            (<code className="font-mono text-[10px]">0xcf6ad755…</code>) and accepts
+            sessions signed by your testnet delegate.
+            <code className="ml-1 font-mono text-[10px]">recall</code> /
+            <code className="font-mono text-[10px]">remember</code> work end-to-end;
+            <code className="ml-1 font-mono text-[10px]">DCA</code> counters and
+            <code className="ml-1 font-mono text-[10px]">EMA</code> state persist
+            across ticks. On mainnet the SDK&rsquo;s default
+            (<code className="font-mono text-[10px]">relayer.memwal.ai</code>) is used
+            instead, with no config change.
           </p>
         </div>
       )}
