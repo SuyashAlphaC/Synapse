@@ -22,11 +22,32 @@ export const REQUESTED_TESTNET_USDC_TYPE_TAG =
 /**
  * Compose a DeepBookV3 spot swap inside a Synapse rebalance PTB.
  *
- * Returns the output coin to the executor for `wallet::deposit`. Routes any
- * non-zero base/quote remainder back to the vault treasury via
- * `wallet::deposit` so partial fills don't abort the PTB. The DEEP fee coin
- * is created with `coin::zero` so its remainder is provably zero — that one
- * we destroy.
+ * Matches the canonical Move signatures exactly (verified against
+ * deepbookv3 `packages/deepbook/sources/pool.move` + the
+ * `@mysten/deepbook-v3` SDK):
+ *
+ *   swap_exact_base_for_quote<Base, Quote>(
+ *     pool, base_in, deep_in, min_quote_out, clock, ctx
+ *   ) -> (Coin<Base>, Coin<Quote>, Coin<DEEP>)
+ *
+ *   swap_exact_quote_for_base<Base, Quote>(
+ *     pool, quote_in, deep_in, min_base_out, clock, ctx
+ *   ) -> (Coin<Base>, Coin<Quote>, Coin<DEEP>)
+ *
+ * Type params are ALWAYS `[Base, Quote]` regardless of direction.
+ * Returns the output coin to the executor for `wallet::deposit`; the
+ * unspent input remainder is deposited back to the treasury so a
+ * partial fill doesn't abort the PTB.
+ *
+ * DEEP fee model: these entry points set `pay_with_deep = true`
+ * internally — fees come from the `deep_in` coin, NOT the input asset.
+ * We pass `coin::zero<DEEP>`, which works on whitelisted / stable
+ * testnet pools that waive DEEP fees (verified: our SUI/DBUSDC
+ * testnet swaps land with a zero DEEP coin). On a mainnet
+ * non-whitelisted pool the swap would abort with insufficient DEEP —
+ * production must fund a real DEEP coin (hold DEEP in treasury + pull
+ * it, or add a DEEP-acquiring leg). Tracked as a mainnet-readiness
+ * follow-up; zero-DEEP is correct for the testnet pools we use.
  */
 export const deepbookSwap: DeepBookSwapFn = (
   tx,
