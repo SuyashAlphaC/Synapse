@@ -65,14 +65,35 @@ export async function uploadReportBlob(args: {
 }): Promise<WalrusUploadResult> {
   const payload = new TextEncoder().encode(args.report.markdown);
 
-  // Path 1: direct write via @mysten/walrus SDK. Cheaper (caller's
-  // session pays storage), preserves caller sovereignty (no third-
-  // party publisher in the trust chain), and works perfectly on
-  // mainnet. On testnet the storage-node quorum is unreliable —
-  // every few attempts fails with "Too many failures while writing
-  // blob …" because not enough nodes accept the chunk.
-  const walrus = createWalrusClient({ network: args.walrusNetwork, suiClient: args.suiClient });
+  // In the browser, skip the @mysten/walrus direct path entirely.
+  // That SDK loads a Node/WASM binary (walrus_wasm_bg.wasm) at
+  // client construction, which isn't served in the dashboard bundle
+  // and throws "Failed to fetch" — aborting the whole tick. The HTTP
+  // publisher is plain `fetch` with no WASM, so it's the only viable
+  // path in-browser (and is more reliable on testnet anyway).
+  const isBrowser =
+    typeof window !== 'undefined' || typeof (globalThis as { document?: unknown }).document !== 'undefined';
+  if (isBrowser) {
+    return uploadViaPublisher({
+      bytes: payload,
+      network: args.walrusNetwork,
+      epochs: args.epochs,
+    });
+  }
+
+  // Path 1 (Node): direct write via @mysten/walrus SDK. Cheaper
+  // (caller's session pays storage), preserves caller sovereignty (no
+  // third-party publisher in the trust chain), works on mainnet. On
+  // testnet the storage-node quorum is unreliable — every few
+  // attempts fails with "Too many failures while writing blob …".
+  // `createWalrusClient` is INSIDE the try because it can throw at
+  // construction (WASM init) — we want that to fall through to the
+  // publisher, not abort the tick.
   try {
+    const walrus = createWalrusClient({
+      network: args.walrusNetwork,
+      suiClient: args.suiClient,
+    });
     return await uploadBlob({
       walrus,
       signer: args.signer,

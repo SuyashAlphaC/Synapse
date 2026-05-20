@@ -209,22 +209,46 @@ async function importStrategyBundle(args: {
   sourceWalrusBlob: string;
   codeHashHex: string;
 }): Promise<Strategy> {
-  // Node supports `import("data:text/javascript;base64,…")` for ESM
-  // out of the box. The bundler emits ESM with all imports marked
-  // external (so the bundle is fully self-contained); no resolver hooks
-  // needed here. The encoded URL is content-addressed: re-importing
-  // the same bytes is a no-op the Node loader handles internally.
-  const base64 = Buffer.from(args.bundleBytes).toString('base64');
-  const dataUrl = `data:text/javascript;base64,${base64}`;
+  // The bundle is self-contained ESM (esbuild emitted it with all
+  // imports external). We load it via dynamic import — but the URL
+  // scheme differs by platform:
+  //
+  //   Node:    `data:text/javascript;base64,…` works natively.
+  //   Browser: data: imports are frequently blocked by CSP, and
+  //            `Buffer` doesn't exist. Use a `blob:` URL instead —
+  //            browsers allow `import()` of blob URLs for ESM.
+  //
+  // The `webpackIgnore` / `@vite-ignore` magic comments stop the
+  // bundler from trying to statically resolve the runtime URL.
+  const isBrowser =
+    typeof window !== 'undefined' ||
+    typeof (globalThis as { document?: unknown }).document !== 'undefined';
+
+  let url: string;
+  let revoke: (() => void) | null = null;
+  if (isBrowser) {
+    const blob = new Blob([args.bundleBytes as BlobPart], { type: 'text/javascript' });
+    url = URL.createObjectURL(blob);
+    revoke = () => URL.revokeObjectURL(url);
+  } else {
+    const base64 = Buffer.from(args.bundleBytes).toString('base64');
+    url = `data:text/javascript;base64,${base64}`;
+  }
 
   let module: { default?: unknown };
   try {
-    module = (await import(/* @vite-ignore */ dataUrl)) as { default?: unknown };
+    module = (await import(/* webpackIgnore: true */ /* @vite-ignore */ url)) as {
+      default?: unknown;
+    };
   } catch (err) {
     throw new WalrusStrategyError(
       `Walrus bundle ${args.sourceWalrusBlob} (sha256 ${args.codeHashHex}) ` +
         `failed to import: ${err instanceof Error ? err.message : String(err)}`,
     );
+  } finally {
+    // `await import(url)` resolves only after the module is fully
+    // evaluated, so it's safe to revoke the blob URL here.
+    revoke?.();
   }
   return validateStrategyExport(module.default, args.strategyId);
 }
