@@ -57,8 +57,15 @@ export function useLiveNavHistory(
 
       const navUsd = series.length === 0 ? priced.navUsd : (series.at(-1)?.navUsd ?? priced.navUsd);
       const first = series[0]?.navUsd ?? navUsd;
-      // Honest "from nil" — growth from a zero baseline is undefined.
-      const growthPct: number | null = first > 0 ? (navUsd - first) / first : null;
+      // NAV is valued at current prices, so its change over the window is
+      // driven by DEPOSITS, not market performance (swaps are neutral). A
+      // large first→last change therefore means the treasury was built up
+      // from near-nothing during the window → report "from nil" rather than
+      // a misleading four-digit "growth". Only when the vault was already
+      // funded across the whole window (first ≈ last) is the residual a
+      // meaningful ~flat return.
+      const builtFromNil = first <= 0 || first < navUsd * 0.5;
+      const growthPct: number | null = builtFromNil ? null : (navUsd - first) / first;
 
       const nowMs = Date.now();
       const dayAgoMs = nowMs - 24 * 60 * 60 * 1000;
@@ -106,82 +113,85 @@ function isBalanceMoving(e: TimelineEntry): boolean {
 }
 
 /**
- * Build the running NAV series. We track per-coin atomic balances forward;
- * at each event we recompute NAV = Σ (balance × current_price). Using a
- * single (current) price snapshot makes "value drift over time" attributable
- * to the agent's actions rather than the market — exactly what a treasury
- * operator wants.
+ * Per-symbol decimal fallbacks for tokens that appear in historical
+ * funding events but may not be in the CURRENT holdings (so their decimals
+ * can't be read off `pricedHoldings`).
+ */
+const KNOWN_DECIMALS: Record<string, number> = {
+  SUI: 9,
+  USDC: 6,
+  DBUSDC: 6,
+  USDT: 6,
+  WAL: 9,
+};
+
+/** Stablecoin USD price fallbacks for symbols missing from the oracle set. */
+const STABLE_USD: Record<string, number> = { USDC: 1, DBUSDC: 1, USDT: 1 };
+
+/**
+ * Build the running NAV series.
+ *
+ * Key modeling choice: valued at CURRENT prices, total NAV only changes
+ * when value enters or leaves the treasury EXTERNALLY — i.e. on deposits
+ * (`agent_funded`). Internal trading is NAV-neutral: a DeepBook swap trades
+ * $X of one coin for ~$X of another, and the `SpendEvent` that feeds the
+ * swap is the swap's input leg, NOT an external outflow. Counting those
+ * spends would double-penalize (we'd subtract the input without crediting
+ * the swap output). So the curve steps at deposits and stays flat through
+ * all the trading/noop ticks in between — which is the honest picture of a
+ * treasury's value over time.
+ *
+ * We RECONCILE against the real current NAV rather than replaying from an
+ * assumed-empty start: starting NAV = current − Σ(deposits in USD). Any
+ * value not explained by a deposit event (e.g. a direct coin transfer)
+ * lands in the starting NAV, so the curve shows "held since inception"
+ * instead of a spurious 0 → vertical-spike.
  */
 function replayEvents(events: readonly TimelineEntry[], priced: PricedVaultState): NavSeriesPoint[] {
-  // Build a fast price lookup per symbol from the priced state.
   const priceBySymbol: Record<string, number> = {};
   const decimalsBySymbol: Record<string, number> = {};
   for (const h of priced.pricedHoldings) {
-    priceBySymbol[h.symbol] = h.priceUsd;
-    decimalsBySymbol[h.symbol] = h.decimals;
+    const sym = h.symbol.toUpperCase();
+    priceBySymbol[sym] = h.priceUsd;
+    decimalsBySymbol[sym] = h.decimals;
   }
 
-  const balances = new Map<string, number>(); // symbol → display amount (already decimal-adjusted)
+  const flowUsd = (event: TimelineEntry): number =>
+    externalFlowUsd(event, decimalsBySymbol, priceBySymbol);
+
+  const totalFlow = events.reduce((sum, event) => sum + flowUsd(event), 0);
+  let nav = priced.navUsd - totalFlow; // pre-history starting NAV
+
   const out: NavSeriesPoint[] = [];
-
   for (const event of events) {
-    const symbol = canonicalSymbol(event);
-    if (symbol && event.amount !== undefined) {
-      const decimals = decimalsBySymbol[symbol] ?? 9; // SUI default
-      const delta = decimalsAdjusted(event.amount, decimals);
-      const current = balances.get(symbol) ?? 0;
-      const next = isInflow(event.kind) ? current + delta : current - delta;
-      balances.set(symbol, next);
-    }
-
-    const navUsd = computeNav(balances, priceBySymbol);
-    out.push({ t: event.timestamp, navUsd });
+    nav += flowUsd(event);
+    // Clamp: small negatives are reconciliation noise (swap fees/slippage,
+    // price drift since the deposit). NAV is never truly negative.
+    out.push({ t: event.timestamp, navUsd: Math.max(0, nav) });
   }
 
-  // Always anchor the last point at the priced state's current NAV so the
-  // sparkline endpoint matches the headline number exactly.
-  if (out.length > 0) {
-    const last = out.at(-1);
-    if (last) last.navUsd = priced.navUsd;
-  }
-
+  // Anchor the final point to the exact current NAV so the sparkline
+  // endpoint matches the headline number precisely.
+  const last = out.at(-1);
+  if (last) last.navUsd = priced.navUsd;
   return out;
 }
 
-function isInflow(kind: TimelineEntry['kind']): boolean {
-  return kind === 'agent_minted' || kind === 'agent_funded' || kind === 'swap';
-}
-
-function canonicalSymbol(event: TimelineEntry): string | null {
-  if (!event.tokenSymbol) return null;
-  // Handle "SUI" or "SUI→USDC" / "USDC→SUI" swap labels.
-  const direct = event.tokenSymbol.toUpperCase();
-  if (direct.includes('→')) {
-    // Treat swap output as the symbol that flowed INTO the treasury.
-    const parts = direct.split('→');
-    const dest = parts[1]?.trim();
-    return dest ?? null;
-  }
-  return direct;
-}
-
-function decimalsAdjusted(amount: number, decimals: number): number {
-  // The TimelineEntry amount is reported in display units for sample data
-  // (`24170`) and atomic units for live data (`100_000_000` for 0.1 SUI).
-  // Distinguish heuristically: if the amount is much larger than reasonable
-  // display values for the coin (>1e6), treat it as atomic.
-  if (amount > 1_000_000) return amount / Math.pow(10, decimals);
-  return amount;
-}
-
-function computeNav(
-  balances: Map<string, number>,
+/**
+ * USD value an event moves into (+) or out of (−) the treasury externally.
+ * Only `agent_funded` deposits count; swaps and the spends that feed them
+ * are NAV-neutral at current prices (see `replayEvents`). Returns 0 for
+ * anything else.
+ */
+function externalFlowUsd(
+  event: TimelineEntry,
+  decimalsBySymbol: Record<string, number>,
   priceBySymbol: Record<string, number>,
 ): number {
-  let nav = 0;
-  for (const [symbol, amount] of balances) {
-    const price = priceBySymbol[symbol] ?? 0;
-    nav += amount * price;
-  }
-  return nav;
+  if (event.kind !== 'agent_funded') return 0;
+  if (event.amount === undefined || !event.tokenSymbol) return 0;
+  const symbol = event.tokenSymbol.toUpperCase();
+  const decimals = decimalsBySymbol[symbol] ?? KNOWN_DECIMALS[symbol] ?? 9;
+  const price = priceBySymbol[symbol] ?? STABLE_USD[symbol] ?? 0;
+  return (event.amount / Math.pow(10, decimals)) * price;
 }

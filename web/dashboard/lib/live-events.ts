@@ -99,7 +99,7 @@ export async function loadLiveTimeline(opts: LoadEventsOptions): Promise<Timelin
           const parsed = ev.parsedJson as Record<string, unknown>;
           if (agentId && !matchesAgent(parsed, agentId)) continue;
           seen.add(id);
-          entries.push({
+          const entry: TimelineEntry = {
             id,
             vaultId: agentId ?? '',
             kind: meta.kind,
@@ -107,7 +107,17 @@ export async function loadLiveTimeline(opts: LoadEventsOptions): Promise<Timelin
             timestamp: Number(ev.timestampMs ?? Date.now()),
             txDigest: ev.id.txDigest,
             accentColor: meta.accent,
-          });
+          };
+          // Surface the balance-moving amount + token so the NAV history
+          // reconstruction can replay funding inflows / spend outflows.
+          // (Swaps are NAV-neutral at current prices, so we deliberately
+          // leave them unannotated — see use-live-nav-history.)
+          const balance = balanceFieldsFor(meta.kind, parsed);
+          if (balance) {
+            entry.amount = balance.amount;
+            entry.tokenSymbol = balance.symbol;
+          }
+          entries.push(entry);
         }
       } catch (err) {
         // Per-module / per-package failures shouldn't kill the load.
@@ -231,7 +241,44 @@ function shortenAddr(v: unknown): string {
 }
 
 function shortenTypeName(v: unknown): string {
-  if (typeof v !== 'string') return '';
-  const last = v.split('::').pop() ?? v;
-  return last.replace(/[<>]/g, '');
+  const sym = symbolFromTokenType(v);
+  return sym ?? '';
+}
+
+/**
+ * Extract a coin symbol from a Move `TypeName`, which Sui RPC serializes
+ * either as a bare string (`"…::sui::SUI"`) or as `{ name: "…::sui::SUI" }`.
+ * Returns the uppercased final `::` segment (e.g. `SUI`, `DBUSDC`), or
+ * `null` when the shape is unrecognized.
+ */
+function symbolFromTokenType(v: unknown): string | null {
+  let typeStr: string | null = null;
+  if (typeof v === 'string') typeStr = v;
+  else if (v && typeof v === 'object' && typeof (v as { name?: unknown }).name === 'string') {
+    typeStr = (v as { name: string }).name;
+  }
+  if (!typeStr) return null;
+  const last = typeStr.split('::').pop();
+  if (!last) return null;
+  return last.replace(/[<>]/g, '').toUpperCase();
+}
+
+/**
+ * For balance-moving events, return the atomic amount + token symbol so
+ * NAV reconstruction can replay treasury inflows/outflows. Only
+ * `agent_funded` (inflow) and `spend` (outflow) carry a single,
+ * unambiguous (amount, token) pair; swaps move two legs and are
+ * NAV-neutral at current prices, so they're intentionally excluded here.
+ */
+function balanceFieldsFor(
+  kind: TimelineEntry['kind'],
+  parsed: Record<string, unknown>,
+): { amount: number; symbol: string } | null {
+  if (kind !== 'agent_funded' && kind !== 'spend') return null;
+  const rawAmount = parsed['amount'];
+  const amount =
+    typeof rawAmount === 'string' || typeof rawAmount === 'number' ? Number(rawAmount) : NaN;
+  const symbol = symbolFromTokenType(parsed['token_type']);
+  if (!Number.isFinite(amount) || !symbol) return null;
+  return { amount, symbol };
 }

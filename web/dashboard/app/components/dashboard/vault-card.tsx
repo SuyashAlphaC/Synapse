@@ -2,11 +2,13 @@
 
 import type { Vault } from '@/lib/sample-data';
 import { formatUsd, shortenAddress, timeAgo } from '@/lib/format';
+import { vaultDisplayName } from '@/lib/vault-identity';
 import { AnimatedNumber } from '../ui/animated-number';
 import { Sparkline } from './sparkline';
 import { CodeTag } from '../ui/code-tag';
 import type { PricedVaultState } from '../../hooks/use-live-vault';
 import type { NavHistory } from '../../hooks/use-live-nav-history';
+import type { LiveStrategy } from '@/lib/strategies';
 
 interface VaultCardProps {
   vault: Vault;
@@ -14,6 +16,13 @@ interface VaultCardProps {
   sampleHistory: number[];
   /** Real on-chain state, when available. Overrides matching sample fields. */
   live?: PricedVaultState;
+  /**
+   * Real vault ID (object address). Used to derive a stable display name
+   * since vaults carry no on-chain name field.
+   */
+  liveVaultId?: string;
+  /** Real hired strategy resolved from the on-chain `strategy_id`. */
+  liveStrategy?: Pick<LiveStrategy, 'name' | 'version'> | null;
   /** Real NAV history series. Falls back to `sampleHistory` if absent. */
   liveHistory?: NavHistory | null;
   loading?: boolean;
@@ -24,13 +33,40 @@ interface VaultCardProps {
  * all live-data-first; sample fields render only when no real vault has
  * been detected for the connected wallet.
  */
-export function VaultCard({ vault, sampleHistory, live, liveHistory, loading }: VaultCardProps) {
+export function VaultCard({
+  vault,
+  sampleHistory,
+  live,
+  liveVaultId,
+  liveStrategy,
+  liveHistory,
+  loading,
+}: VaultCardProps) {
   const navUsd = live?.navUsd ?? vault.navUsd;
   const ownerDisplay = live ? live.identity.owner : vault.owner;
   const sessionDisplay = live ? live.identity.sessionAddr : vault.sessionAddr;
   const expiryDisplay = live ? live.identity.expiryEpoch.toString() : vault.expiryEpoch.toString();
   const aumFeeUsdYear = (navUsd * vault.managementFeeBps) / 10_000;
   const dataMode: 'live' | 'demo' = live ? 'live' : 'demo';
+
+  // Display name: derive a stable label from the real vault ID (no
+  // on-chain name field exists) when live; otherwise the sample label.
+  const displayName = live && liveVaultId ? vaultDisplayName(liveVaultId) : vault.name;
+
+  // Strategy label: real published name + version when resolved → short
+  // strategy ID when live but the strategy object isn't loaded yet →
+  // sample label only in demo mode.
+  const strategyLabel = liveStrategy
+    ? `${liveStrategy.name} v${liveStrategy.version.toString()}`
+    : live
+      ? `Strategy ${shortenAddress(live.identity.strategyId)}`
+      : `${vault.strategyName} v${vault.strategyVersion}`;
+
+  // Inception: the oldest replayed event timestamp is the mint; fall back
+  // to the sample inception only in demo mode.
+  const firstEventT = liveHistory?.series[0]?.t;
+  const inceptionDisplay =
+    live && firstEventT !== undefined ? timeAgo(firstEventT) : timeAgo(vault.inceptionTs);
 
   // 24h change: prefer the real one when we have it; fall back to sample
   // only when not live. Honest "—" when live but no comparison point exists.
@@ -72,7 +108,7 @@ export function VaultCard({ vault, sampleHistory, live, liveHistory, loading }: 
               {live ? (live.identity.revoked ? 'revoked' : 'active') : vault.status}
             </span>
             <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-mute">
-              {vault.strategyName} v{vault.strategyVersion}
+              {strategyLabel}
             </span>
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
               <CodeTag>{dataMode}</CodeTag>
@@ -81,7 +117,7 @@ export function VaultCard({ vault, sampleHistory, live, liveHistory, loading }: 
           </div>
 
           <h2 className="headline text-5xl md:text-6xl">
-            {vault.name}
+            {displayName}
             <span className="text-accent-orange">.</span>
           </h2>
 
@@ -132,7 +168,7 @@ export function VaultCard({ vault, sampleHistory, live, liveHistory, loading }: 
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
             <Detail label="Owner" value={shortenAddress(ownerDisplay)} />
             <Detail label="Session" value={shortenAddress(sessionDisplay)} />
-            <Detail label="Inception" value={timeAgo(vault.inceptionTs)} />
+            <Detail label="Inception" value={inceptionDisplay} />
             <Detail label="Expires at epoch" value={expiryDisplay} />
           </div>
         </div>

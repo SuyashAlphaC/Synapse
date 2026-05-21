@@ -107,6 +107,8 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
           vault={sampleVault}
           sampleHistory={SAMPLE_REBALANCE_HISTORY}
           {...(live ? { live } : {})}
+          {...(effectiveVaultId ? { liveVaultId: effectiveVaultId } : {})}
+          {...(hiredStrategy ? { liveStrategy: hiredStrategy } : {})}
           {...(liveHistory ? { liveHistory } : {})}
           loading={liveQuery.isLoading || historyQuery.isLoading}
         />
