@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-flight runs for the same PR / branch — we only care about
+# the latest commit's verdict.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vault-runtime:
+    name: vault runtime (typecheck + tests + secret-leak scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install workspace deps (locked)
+        run: npm ci --ignore-scripts
+
+      # Build the workspace deps the vault package depends on. Their
+      # `dist/` is needed for typecheck + tests to resolve `@synapse-core/*`.
+      - name: Build workspace deps
+        run: |
+          npm --workspace @synapse-core/client run build
+          npm --workspace @synapse-core/memwal-bridge run build
+
+      - name: Typecheck (vault)
+        run: npm --workspace @synapse-core/vault run typecheck
+
+      - name: Vault unit tests
+        run: npm --workspace @synapse-core/vault test
+
+      - name: Forbidden-pattern scan (runtime / signing / memory)
+        run: ./scripts/check-forbidden-patterns.sh
+
+      - name: Verify session-key paths are gitignored
+        run: |
+          set -e
+          # Use git check-ignore directly — it returns 0 iff the path
+          # would be ignored. Catches a future .gitignore edit that
+          # accidentally exposes a real key.
+          for path in secrets/session-key secrets/memwal-delegate .env vault.key my.key; do
+            if ! git check-ignore -q "$path"; then
+              echo "FAIL: $path is NOT gitignored — secrets could leak into commits" >&2
+              exit 1
+            fi
+          done
+          echo "✓ secret file paths are gitignored"
+
+      - name: Build runtime image (smoke)
+        run: docker build -f sdk/packages/vault/Dockerfile -t synapse-runtime:ci .
