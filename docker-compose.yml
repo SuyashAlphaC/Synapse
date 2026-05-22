@@ -1,0 +1,54 @@
+# Synapse Vault runtime — local self-host with real Docker secrets.
+#
+# Demonstrates the FileSecretsProvider path: secrets are mounted as
+# files under /run/secrets (the Docker / Fly / Railway convention),
+# the runtime is started with `--secrets-dir /run/secrets`, and the
+# session key + MemWal delegate are NEVER baked into the image or the
+# env file.
+#
+# Usage:
+#   1. Drop your session key bytes into `./secrets/session-key`
+#      (either a suiprivkey… string, the .key JSON, or 32 base64 bytes).
+#      Optional: `./secrets/memwal-delegate` with 64-char hex.
+#   2. Set SYNAPSE_PACKAGE_ID + SYNAPSE_AGENT_ID in `.env`.
+#   3. `docker compose up --build`.
+#
+# To run a single tick instead of the continuous loop:
+#   docker compose run --rm runtime --once --secrets-dir /run/secrets
+#
+# Multi-vault: copy this file to `docker-compose.vault-<id>.yml` per
+# vault, change the service name + secret file paths. Each vault gets
+# its own container; only the secrets differ.
+
+services:
+  runtime:
+    build:
+      context: .
+      dockerfile: sdk/packages/vault/Dockerfile
+    image: synapse-vault-runtime:local
+    restart: unless-stopped
+    command: ["--secrets-dir", "/run/secrets"]
+    env_file:
+      - .env
+    # Keep secrets OUT of the env file. They are mounted as files
+    # under /run/secrets — the FileSecretsProvider reads them on boot.
+    secrets:
+      - session-key
+      - memwal-delegate
+    # Tiny vault — operational footprint is well under 256 MB.
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+secrets:
+  session-key:
+    file: ./secrets/session-key
+  memwal-delegate:
+    file: ./secrets/memwal-delegate

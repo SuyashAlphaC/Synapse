@@ -26,6 +26,7 @@ import { loadSessionKeypair, loadMemwalDelegateFromKeyFile } from './keypair.js'
 import { createLogger, type VaultLogger } from './logger.js';
 import type { RuntimeConfig } from './config.js';
 import { resolveStrategyWithWalrus } from './strategy-resolver.js';
+import { sendAlert } from './alerts.js';
 import type { Strategy } from '../types.js';
 
 export type { RuntimeConfig } from './config.js';
@@ -117,6 +118,17 @@ export class VaultRuntime {
       if (this.#consecutiveFailures >= (this.#config.maxConsecutiveFailures ?? DEFAULT_MAX_FAILURES)) {
         process.exitCode = 1;
         this.#stopping = true;
+        // Best-effort heads-up to the operator's webhook. Doesn't block
+        // shutdown if the webhook is slow / unreachable.
+        void sendAlert(
+          {
+            event: 'runtime_max_failures',
+            agentId: this.#config.agentId,
+            detail: `Stopped after ${this.#consecutiveFailures} consecutive failures`,
+            context: { lastError: err instanceof Error ? err.message : String(err) },
+          },
+          { logger: this.#logger },
+        );
       }
       throw err;
     } finally {

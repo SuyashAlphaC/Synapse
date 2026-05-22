@@ -24,7 +24,10 @@ out/
 *.key
 *.key.json
 *-session-*.key
-secrets/
+secrets/*
+# …but allow the docs that explain how to use the directory.
+!secrets/README.md
+!secrets/.gitkeep
 
 # Sui local config
 .sui/

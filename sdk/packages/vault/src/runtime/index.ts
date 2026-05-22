@@ -9,3 +9,5 @@ export * from './keypair.js';
 export * from './logger.js';
 export * from './oracle.js';
 export * from './secrets.js';
+export * from './bootstrap.js';
+export * from './alerts.js';
