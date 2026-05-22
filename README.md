@@ -235,6 +235,31 @@ Single take, no cuts, real testnet transactions:
 
 ---
 
+## Run it yourself
+
+The same `VaultRuntime` ships in the browser (demo only) and as a
+headless Node container (production). Closing the dashboard tab does
+**not** stop ticks once the headless runtime is hosted.
+
+| Want to… | Read |
+|---|---|
+| Run a vault locally (or via cron) for $0 | [`docs/self-hosting.md`](docs/self-hosting.md) §3–4 |
+| Deploy on Fly / Railway / Fargate | [`docs/self-hosting.md`](docs/self-hosting.md) §5–7 |
+| Understand the security model | [`docs/threat-model.md`](docs/threat-model.md) |
+| Reproduce the AWS Fargate cron stack | [`infrastructure/aws/README.md`](infrastructure/aws/README.md) |
+
+The runtime is hardened for self-hosting: pluggable `SecretsProvider`
+(env, Docker secret files, or AWS Secrets Manager), redacting logger
+(secrets can never reach stdout), webhook alerts on failure, Walrus
+strategy `code_hash` allowlist, transient-outage skip (Pyth/RPC blip
+≠ runtime defect), and graceful SIGTERM shutdown.
+
+CI (`.github/workflows/ci.yml`) gates every PR on typecheck, vault
+tests, secret-leak scan, gitignore-of-key-paths, and a runtime Docker
+build smoke.
+
+---
+
 ## Repository Structure
 
 ```
