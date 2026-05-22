@@ -17,6 +17,7 @@ import { CodeTag } from '../ui/code-tag';
 import { explorerAddressUrl, explorerObjectUrl } from '@/lib/synapse-config';
 import { shortenAddress, shortenHash } from '@/lib/format';
 import { EquityCurve } from './equity-curve';
+import { AuditBadge } from './audit-badge';
 
 type RiskFilter = 'all' | RiskProfile;
 type StatusFilter = 'all' | 'active' | 'deprecated';
@@ -195,12 +196,15 @@ function StrategyCard({
           </p>
           <h3 className="mt-2 font-display text-xl font-bold leading-tight">{strategy.name}</h3>
         </div>
-        <span
-          className="rounded-full border border-ink/20 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em]"
-          style={{ backgroundColor: accent }}
-        >
-          {RISK_LABEL[strategy.riskProfile]}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <span
+            className="rounded-full border border-ink/20 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em]"
+            style={{ backgroundColor: accent }}
+          >
+            {RISK_LABEL[strategy.riskProfile]}
+          </span>
+          <AuditBadge strategy={strategy} />
+        </div>
       </header>
 
       <p className="line-clamp-2 text-sm leading-relaxed text-ink-soft">{strategy.description}</p>

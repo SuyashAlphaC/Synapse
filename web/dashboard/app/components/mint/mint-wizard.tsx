@@ -30,6 +30,7 @@ import { shortenAddress, shortenHash } from '@/lib/format';
 import { recordVault } from '@/lib/local-vaults';
 import { RISK_LABEL, requiresWalrusConsent, type LiveStrategy } from '@/lib/strategies';
 import { useStrategies } from '../../hooks/use-strategies';
+import { AuditBadge } from '../marketplace/audit-badge';
 
 const STEPS = [
   {
@@ -569,6 +570,9 @@ export function MintWizard() {
                 {RISK_LABEL[selected.riskProfile]} ·{' '}
                 {(selected.royaltyBps / 100).toFixed(1)}% royalty
               </p>
+              <div className="mt-2">
+                <AuditBadge strategy={selected} />
+              </div>
             </>
           )}
 
@@ -721,19 +725,22 @@ function StrategyOption({
           )}
         </p>
       </div>
-      <span
-        className="rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em]"
-        style={{
-          backgroundColor:
-            strategy.riskProfile === 0
-              ? 'var(--accent-green)'
-              : strategy.riskProfile === 1
-                ? 'var(--accent-blue)'
-                : 'var(--accent-orange)',
-        }}
-      >
-        {RISK_LABEL[strategy.riskProfile]}
-      </span>
+      <div className="flex shrink-0 flex-col items-end gap-1">
+        <span
+          className="rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em]"
+          style={{
+            backgroundColor:
+              strategy.riskProfile === 0
+                ? 'var(--accent-green)'
+                : strategy.riskProfile === 1
+                  ? 'var(--accent-blue)'
+                  : 'var(--accent-orange)',
+          }}
+        >
+          {RISK_LABEL[strategy.riskProfile]}
+        </span>
+        <AuditBadge strategy={strategy} />
+      </div>
     </button>
   );
 }
