@@ -23,6 +23,13 @@
     <link rel="stylesheet" href="./styles.css" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <script defer src="./scroll-reveal.js"></script>
+    <!--
+      Rewrites every "/mint" and "/dashboard" link in the page to the
+      configured DASHBOARD_BASE constant inside the script. Lets the
+      static site live on Walrus Sites while the Next.js dashboard
+      lives on Vercel/Cloudflare, without HTML edits per deploy.
+    -->
+    <script defer src="./dashboard-link.js"></script>
   </head>
   <body class="bg-paper text-ink">
     <header class="site-nav">

@@ -167,7 +167,7 @@ Synapse Vault is the canonical Walrus track submission: every requirement is hit
 | 7 | Adapters for existing frameworks | LangGraph implementation lets any LangGraph workflow become a Vault-managed strategy |
 | 8 | Workflow orchestration (memory + messaging + execution) | All three integrated in one PTB: spend → swap → memory write → message peer |
 | 9 | Cross-tool/cross-agent memory sharing | Strategy agents share namespace; conservative and aggressive strategies see each other's decisions |
-| 10 | Inspection/debug dev tool | Memory Inspector — standalone debugging tool for any MemWal namespace, useful beyond Vault |
+| 10 | Inspection/debug dev tool | Dashboard's Audit Timeline + Memory panels — every decision with on-chain digest, recall trace, and live Walrus rationale fetch |
 | 11 | Working systems, not just demos | LangGraph adapter + Vault dashboard are real software, runnable, contributable |
 | 12 | Seal for privacy | Strategy parameters Seal-encrypted; only the Vault delegate key can decrypt |
 
@@ -199,15 +199,15 @@ Sui Overflow 2026 theme captured as code: cream + ink palette, vibrant accents, 
 
 ---
 
-## Updated Build Plan (5 weeks remaining)
+## Updated Build Plan
 
 | Week | Deliverable |
 |---|---|
 | **Week 1 (May 13–19)** | ✅ `@synapse-core/memwal-bridge` real implementation · LangGraph adapter · Vault runtime loop · DeepBookV3 swap composition · Walrus artifact reports |
-| **Week 2 (May 20–26)** | Runtime hardening · funded-vault testnet rehearsal · Memory Inspector polish |
-| **Week 3 (May 27–Jun 2)** | Vault Next.js dashboard (mint flow, holdings, audit timeline, revoke) · Indexer with Vault GraphQL views |
-| **Week 4 (Jun 3–9)** | Landing site with pricing calculator · Memory Inspector polish · Demo video script and rehearsals |
-| **Week 5 (Jun 10–16)** | Demo video recording · README polish · Threat model doc · Final submission package |
+| **Week 2 (May 20–26)** | ✅ Runtime hardening (headless secrets seam · redacting logger · Walrus code-hash allowlist · fail-safe liveness · webhook alerts · CI · self-hosting docs) · funded-vault testnet rehearsal |
+| **Week 3 (May 27–Jun 2)** | ✅ Vault Next.js dashboard (mint flow, holdings, audit timeline, revoke) · Indexer with Vault GraphQL views |
+| **Week 4 (Jun 3–9)** | ✅ Landing site with pricing calculator (Walrus Sites deployable) · Demo video script and rehearsals |
+| **Week 5 (Jun 10–16)** | Demo video recording · Threat model finalization · Final submission package |
 | **Buffer (Jun 17–21)** | Bug fixes · Submission |
 | **Phase 5 (Jul 8–20, if shortlisted)** | Live Demo Day pitch prep |
 | **Phase 6 (Jul 22–Aug 20)** | Security review · Mainnet deployment (captures full 100% prize) |
@@ -215,8 +215,8 @@ Sui Overflow 2026 theme captured as code: cream + ink palette, vibrant accents, 
 ### Scope Trade-offs
 
 - **Drop**: Claude Agent SDK + Eliza adapters (post-hackathon). Only LangGraph for v1 since that's what Vault uses internally.
-- **Add**: Vault product UI replaces generic dashboard. Real revenue-model landing page + pricing calculator. Real DeepBookV3 swap loop on testnet.
-- **Keep**: Memory Inspector as standalone dev tool (still valuable for developers building on Synapse Core).
+- **Drop**: standalone Memory Inspector. The Vault dashboard's Audit Timeline + Memory panel + Runtime Health cover the same use cases for the canonical product.
+- **Add**: Vault product UI replaces generic dashboard. Real revenue-model landing page + pricing calculator. Real DeepBookV3 swap loop on testnet. Production-hardened headless runtime (see [`docs/self-hosting.md`](docs/self-hosting.md)).
 
 ---
 
@@ -277,8 +277,7 @@ synapse-core/                              monorepo root
 │   └── indexer/                           ✅ GraphQL indexer
 ├── web/
 │   ├── dashboard/                         ✅ Vault product UI
-│   ├── inspector/                         🚧 Memory Inspector dev tool (Week 4)
-│   └── site/                              🚧 Marketing + pricing site (Week 4)
+│   └── site/                              ✅ Marketing + pricing calculator (Walrus Sites-ready)
 └── docs/superpowers/plans/                ✅ Implementation plan
 ```
 

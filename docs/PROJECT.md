@@ -60,7 +60,7 @@ set at mint time.
 | **Vault Owner** | A human (or DAO) with money they want managed. Mints a vault, picks a strategy, sets spending limits, can revoke at any time. | `/mint`, `/dashboard` |
 | **Strategist** | A coder who writes an AI/quant strategy. Publishes it on-chain, earns a royalty on every vault that hires it. | `/marketplace/publish`, `/strategist` |
 | **AI Agent (Session Key)** | The actual program running the strategy. Has its own Sui key that can sign trades — but only trades the policy allows. | Runs as a Node process; the dashboard never sees it directly. |
-| **Auditor / Regulator** | A third party who needs to verify what the AI did, when, and why. Reads on-chain events + the Walrus-stored rationale docs. | `/inspector`, Sui Explorer, Walrus aggregator |
+| **Auditor / Regulator** | A third party who needs to verify what the AI did, when, and why. Reads on-chain events + the Walrus-stored rationale docs. | `/dashboard/[vaultId]` Audit Timeline panel, Sui Explorer, Walrus aggregator |
 | **Strategy Buyer** | Wants to acquire a published strategy outright (rare but possible). Receives the StrategistCap via transfer. | `/strategist` → Transfer cap modal |
 
 ---
@@ -116,7 +116,7 @@ audit timeline scrolls, holdings rebalance.
 | Action | Where | What it does |
 |---|---|---|
 | See live NAV | `/dashboard` | Real-time chart of vault value |
-| See past decisions | `/inspector` | Every rebalance with its on-chain digest + Walrus rationale |
+| See past decisions | `/dashboard/[vaultId]` Audit Timeline | Every rebalance with its on-chain digest + Walrus rationale |
 | Rotate session key | Dashboard sidebar | Issue a fresh keypair if you suspect compromise |
 | Change spend cap | Dashboard policy panel | Tighten or loosen the per-epoch limit |
 | Extend expiry | Dashboard policy panel | Push the auto-shutdown date out |
@@ -185,8 +185,8 @@ Next.js 16 app, Sui Overflow 2026 theme, all live on-chain reads:
 | `/marketplace/publish` | Strategist publish form — signs the real publish PTB |
 | `/strategist` | Strategist console — deprecate / version-bump / transfer for every cap you hold |
 | `/mint` | 6-step mint wizard with live strategy picker |
-| `/dashboard` | Vault hero card, holdings, policy panel, audit timeline, run-tick button, session-key rotation, danger zone |
-| `/inspector` | Memory inspector — every past decision with Walrus rationale fetch |
+| `/dashboard` | Vault list and creation entry point |
+| `/dashboard/[vaultId]` | Per-vault hero card, holdings, policy panel, audit timeline, runtime health, in-browser runtime panel, session-key rotation, danger zone |
 | `/zklogin/callback` | OAuth landing page for the Google sign-in flow |
 
 ### Marketing site (`web/site/`)

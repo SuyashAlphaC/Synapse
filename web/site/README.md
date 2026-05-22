@@ -44,12 +44,22 @@ site-builder update --epochs 100 <site-object-id> .
 
 ```
 web/site/
-├── index.html       — landing page (hero, how-it-works, pricing, FAQ, CTA)
-├── styles.css       — Sui Overflow 2026 theme tokens
-├── calculator.js    — interactive AUM pricing calculator
-├── favicon.svg      — four-square logo
-├── ws-resources.json — Walrus Sites manifest
+├── index.html         — landing page (hero, how-it-works, pricing, FAQ, CTA)
+├── styles.css         — Sui Overflow 2026 theme tokens
+├── calculator.js      — interactive AUM pricing calculator
+├── performance.js     — strategy comparison chart
+├── scroll-reveal.js   — fade-in on scroll
+├── dashboard-link.js  — single source of truth for the Vault dashboard URL
+├── favicon.svg        — four-square logo
+├── ws-resources.json  — Walrus Sites manifest
 └── README.md
 ```
 
 No bundler, no framework, no build step. Edit the HTML and re-publish.
+
+## Dashboard URL
+
+Every "Mint a vault" / "Open dashboard" link on the site is rewritten at
+load time against the `DASHBOARD_BASE` constant in
+[`dashboard-link.js`](./dashboard-link.js). Update that one constant
+when the dashboard moves; no other HTML edits required.
