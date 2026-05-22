@@ -4,6 +4,57 @@
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 }
+
+const TRANSIENT_ERROR_PATTERNS = [
+  'fetch failed',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ETIMEDOUT',
+  'socket hang up',
+  'network error',
+  'AbortError',
+  'UND_ERR_CONNECT_TIMEOUT',
+];
+
+function isTransientNetworkError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return TRANSIENT_ERROR_PATTERNS.some((p) => msg.includes(p));
+}
+
+/**
+ * Wraps `signAndExecuteTransaction` with retry-on-transient-network-error.
+ * The Sui SDK's transaction builder internally calls `getLatestSuiSystemState`
+ * during gas resolution — if the RPC is briefly unreachable, the PTB build
+ * fails with `TypeError: fetch failed` even though the runtime's own
+ * pre-checks passed. Retrying 2-3 times with a short backoff covers these
+ * blips without masking real Move abort errors.
+ */
+async function signAndExecuteWithRetry(
+  client: SuiJsonRpcClient,
+  args: {
+    transaction: Transaction;
+    signer: Awaited<ReturnType<typeof import('./keypair.js').loadSessionKeypair>>;
+    options?: Record<string, boolean>;
+  },
+  maxRetries = 3,
+): Promise<SuiTransactionBlockResponse> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await client.signAndExecuteTransaction({
+        transaction: args.transaction,
+        signer: args.signer,
+        options: args.options,
+      });
+    } catch (err) {
+      if (attempt < maxRetries && isTransientNetworkError(err)) {
+        const backoffMs = 2000 * 2 ** attempt;
+        await delay(backoffMs);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
 import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import type { SuiTransactionBlockResponse } from '@mysten/sui/jsonRpc';
 import { Transaction } from '@mysten/sui/transactions';
@@ -515,7 +566,7 @@ export class VaultRuntime {
         ],
       });
     }
-    const result = await this.#client.signAndExecuteTransaction({
+    const result = await signAndExecuteWithRetry(this.#client, {
       transaction: tx,
       signer,
       options: { showEvents: true, showEffects: true },
@@ -599,7 +650,7 @@ export class VaultRuntime {
         arguments: [tx.object(this.#config.agentId), tx.pure.u64(topUpAmount)],
       });
       tx.transferObjects([coin], tx.pure.address(sessionAddr));
-      const result = await this.#client.signAndExecuteTransaction({
+      const result = await signAndExecuteWithRetry(this.#client, {
         transaction: tx,
         signer,
         options: { showEffects: true },
@@ -701,7 +752,7 @@ export class VaultRuntime {
         ],
       });
     }
-    const result = await this.#client.signAndExecuteTransaction({
+    const result = await signAndExecuteWithRetry(this.#client, {
       transaction: tx,
       signer,
       options: { showEvents: true, showEffects: true },

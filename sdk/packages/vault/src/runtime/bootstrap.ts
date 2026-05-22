@@ -25,6 +25,7 @@ import {
   FileSecretsProvider,
   type SecretsProvider,
 } from './secrets.js';
+import { loadMemwalDelegateFromKeyFile } from './keypair.js';
 
 export interface BootstrapOptions {
   /** Directory of mounted secret files (FileSecretsProvider). */
@@ -88,10 +89,30 @@ export async function bootstrapConfig(
       env.MEMWAL_DELEGATE_KEY = fromProvider;
       memwalDelegateSource = 'provider';
     } else {
-      // The session .key file may carry the delegate too (the "treat
-      // delegate like session" fix). loadFromEnv won't notice that path;
-      // the runtime detects it at tick-time via loadMemwalDelegateFromKeyFile.
-      memwalDelegateSource = env.SYNAPSE_SESSION_KEY_PATH ? 'file' : 'none';
+      // The session .key JSON (dashboard download) may bundle
+      // `memwalDelegate.privateKeyHex` alongside the session secret.
+      // Extract it here so config.memwal is populated from the start
+      // instead of deferring to the tick-time fallback in runtime.ts.
+      // Best-effort: if the file doesn't exist yet or isn't JSON, we
+      // fall through to 'none' — the runtime's tick-time fallback in
+      // #tickOnceInner will try again once the session key is loaded.
+      let delegateFromKeyJson: string | null = null;
+      try {
+        const sessionValue = env.SYNAPSE_SESSION_KEY;
+        delegateFromKeyJson = sessionValue
+          ? await loadMemwalDelegateFromKeyFile({ sessionKeyEnv: sessionValue })
+          : env.SYNAPSE_SESSION_KEY_PATH
+            ? await loadMemwalDelegateFromKeyFile({ sessionKeyPath: env.SYNAPSE_SESSION_KEY_PATH })
+            : null;
+      } catch {
+        // File not found or unreadable — non-fatal at bootstrap.
+      }
+      if (delegateFromKeyJson) {
+        env.MEMWAL_DELEGATE_KEY = delegateFromKeyJson;
+        memwalDelegateSource = 'file';
+      } else {
+        memwalDelegateSource = 'none';
+      }
     }
   }
 
