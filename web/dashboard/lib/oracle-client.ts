@@ -22,7 +22,10 @@ export const PYTH_FEED_IDS = {
 
 export type PythSymbol = keyof typeof PYTH_FEED_IDS;
 
-const HERMES_URL = 'https://hermes.pyth.network';
+const HERMES_URLS = [
+  'https://hermes.pyth.network',
+  'https://hermes-beta.pyth.network',
+];
 
 interface HermesPriceFeedResponse {
   parsed?: Array<{
@@ -33,10 +36,86 @@ interface HermesPriceFeedResponse {
 }
 
 /**
- * Fetch the latest USD price for the given symbols. Unknown symbols are
- * silently dropped; the returned record only contains successful lookups.
- *
- * Symbols are resolved case-insensitively against `PYTH_FEED_IDS`.
+ * CoinGecko simple-price fallback when all Pyth Hermes endpoints are
+ * unreachable. Only covers symbols we have a CoinGecko ID for.
+ */
+const COINGECKO_IDS: Partial<Record<string, string>> = {
+  SUI: 'sui',
+  BTC: 'bitcoin',
+  ETH: 'ethereum',
+};
+
+async function fetchCoinGeckoFallback(
+  symbols: readonly string[],
+  signal?: AbortSignal,
+): Promise<Record<string, number>> {
+  const ids = symbols
+    .map((s) => COINGECKO_IDS[s.toUpperCase()])
+    .filter((id): id is string => !!id);
+  if (ids.length === 0) return {};
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`;
+  const res = await fetch(url, {
+    headers: { Accept: 'application/json' },
+    ...(signal ? { signal } : {}),
+  });
+  if (!res.ok) return {};
+  const body = (await res.json()) as Record<string, { usd?: number }>;
+  const out: Record<string, number> = {};
+  for (const sym of symbols) {
+    const geckoId = COINGECKO_IDS[sym.toUpperCase()];
+    if (!geckoId) continue;
+    const price = body[geckoId]?.usd;
+    if (typeof price === 'number' && price > 0) {
+      out[sym] = price;
+      out[sym.toUpperCase()] = price;
+    }
+  }
+  return out;
+}
+
+async function fetchFromHermes(
+  hermesUrl: string,
+  feedIds: string[],
+  symbolByFeedId: Record<string, string[]>,
+  signal?: AbortSignal,
+): Promise<Record<string, number>> {
+  const url = new URL(`${hermesUrl}/v2/updates/price/latest`);
+  for (const id of feedIds) url.searchParams.append('ids[]', id);
+
+  const response = await fetch(url.toString(), {
+    headers: { Accept: 'application/json' },
+    ...(signal ? { signal } : {}),
+  });
+  if (!response.ok) {
+    throw new Error(`Pyth Hermes returned ${response.status} ${response.statusText}`);
+  }
+  const body = (await response.json()) as HermesPriceFeedResponse;
+  if (!body.parsed) return {};
+
+  const out: Record<string, number> = {};
+  for (const entry of body.parsed) {
+    const normalizedId = entry.id.startsWith('0x') ? entry.id : `0x${entry.id}`;
+    const aliases =
+      symbolByFeedId[normalizedId] ??
+      symbolByFeedId[normalizedId.toLowerCase()] ??
+      symbolByFeedId[`0x${normalizedId.replace(/^0x/, '').toLowerCase()}`];
+    if (!aliases) continue;
+    const mantissa = Number(entry.price.price);
+    if (!Number.isFinite(mantissa)) continue;
+    const price = mantissa * Math.pow(10, entry.price.expo);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    for (const symbol of aliases) {
+      out[symbol] = price;
+      out[symbol.toUpperCase()] = price;
+    }
+  }
+  return out;
+}
+
+/**
+ * Fetch the latest USD price for the given symbols. Tries multiple Pyth
+ * Hermes endpoints, then falls back to CoinGecko if all are down.
+ * Unknown symbols are silently dropped.
  */
 export async function fetchPythPricesUsd(
   symbols: readonly string[],
@@ -53,36 +132,23 @@ export async function fetchPythPricesUsd(
   const feedIds = Object.keys(symbolByFeedId);
   if (feedIds.length === 0) return {};
 
-  const url = new URL(`${HERMES_URL}/v2/updates/price/latest`);
-  for (const id of feedIds) url.searchParams.append('ids[]', id);
-
-  const response = await fetch(url.toString(), {
-    headers: { Accept: 'application/json' },
-    ...(signal ? { signal } : {}),
-  });
-  if (!response.ok) {
-    throw new Error(`Pyth Hermes returned ${response.status} ${response.statusText}`);
-  }
-  const body = (await response.json()) as HermesPriceFeedResponse;
-  if (!body.parsed) return {};
-
-  const out: Record<string, number> = {};
-  for (const entry of body.parsed) {
-    const normalizedId = entry.id.startsWith('0x') ? entry.id : `0x${entry.id}`;
-    // Match either casing — Hermes returns lowercased IDs without `0x`.
-    const aliases =
-      symbolByFeedId[normalizedId] ??
-      symbolByFeedId[normalizedId.toLowerCase()] ??
-      symbolByFeedId[`0x${normalizedId.replace(/^0x/, '').toLowerCase()}`];
-    if (!aliases) continue;
-    const mantissa = Number(entry.price.price);
-    if (!Number.isFinite(mantissa)) continue;
-    const price = mantissa * Math.pow(10, entry.price.expo);
-    if (!Number.isFinite(price) || price <= 0) continue;
-    for (const symbol of aliases) {
-      out[symbol] = price;
-      out[symbol.toUpperCase()] = price;
+  // Try each Hermes endpoint; first success wins.
+  for (const hermesUrl of HERMES_URLS) {
+    try {
+      const result = await fetchFromHermes(hermesUrl, feedIds, symbolByFeedId, signal);
+      if (Object.keys(result).length > 0) return result;
+    } catch {
+      // Try next endpoint.
     }
   }
-  return out;
+
+  // All Pyth endpoints failed — fall back to CoinGecko for the symbols
+  // we have mappings for.
+  try {
+    return await fetchCoinGeckoFallback(symbols, signal);
+  } catch {
+    // Total oracle failure — caller sees an empty price map, which
+    // use-live-vault.ts reports as `unpriced` symbols.
+    return {};
+  }
 }

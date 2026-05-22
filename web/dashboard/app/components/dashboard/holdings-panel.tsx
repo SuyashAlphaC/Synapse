@@ -71,6 +71,19 @@ export function HoldingsPanel({ vault, live, loading }: HoldingsPanelProps) {
         <span className="font-serif italic text-ink-mute">{dataMode}</span>
       </div>
 
+      {live?.unpriced && live.unpriced.length > 0 && (
+        <div
+          className="mb-4 rounded-sm border-2 border-accent-orange bg-paper-strong p-3 font-mono text-[11px] text-ink-soft"
+        >
+          <span className="font-semibold text-accent-orange">Price oracle unavailable</span>
+          {' '}&mdash; {live.unpriced.join(', ')} showing as $0.
+          Balances are correct; USD values will update when the oracle recovers.
+          {live.priceError && (
+            <span className="ml-1 text-ink-mute">({live.priceError})</span>
+          )}
+        </div>
+      )}
+
       {holdings.length === 0 ? (
         <p className="rounded-sm border border-dashed border-ink-mute p-6 text-center font-mono text-xs text-ink-mute">
           Treasury is empty. Fund the vault to see holdings here.
