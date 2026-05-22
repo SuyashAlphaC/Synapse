@@ -373,6 +373,66 @@ describe('VaultRuntime.tickOnce', () => {
     expect(receipt).toBeNull();
     expect(fake.signAndExecuteTransaction).not.toHaveBeenCalled();
   });
+
+  // -----------------------------------------------------------------------
+  // Fail-safe liveness: pre-PTB external outages are SKIPS, not failures.
+  // The runtime must (a) never sign a PTB when an upstream is unhealthy,
+  // (b) never count those skips toward maxConsecutiveFailures, and (c)
+  // never throw out of `tickOnce` for skips so the loop survives.
+  // -----------------------------------------------------------------------
+
+  it('classifies a Sui-RPC failure as a tick skip (no PTB, no failure count)', async () => {
+    const { fake } = makeFakeClient();
+    fake.getLatestSuiSystemState = vi.fn(async () => {
+      throw new Error('ECONNRESET fetching sui rpc');
+    });
+    const runtime = new VaultRuntime(
+      { ...makeConfig(makeNoopStrategy()), maxConsecutiveFailures: 2 },
+      {
+        client: fake as unknown as NonNullable<
+          ConstructorParameters<typeof VaultRuntime>[1]
+        >['client'],
+        logger: silentLogger,
+      },
+    );
+    // tickOnce returns null for a skip (does NOT throw).
+    const receipt = await runtime.tickOnce();
+    expect(receipt).toBeNull();
+    expect(fake.signAndExecuteTransaction).not.toHaveBeenCalled();
+    // Repeated skips must not trip the kill switch: a successful tick
+    // after the skip resets the counter cleanly.
+    fake.getLatestSuiSystemState = vi.fn(async () => ({ epoch: '11' }));
+    const followup = await runtime.tickOnce();
+    expect(followup).not.toBeNull();
+  });
+
+  it('classifies a market-load (Pyth/DeepBook) failure as a tick skip', async () => {
+    (loadMarketSnapshot as Mock).mockRejectedValueOnce(new Error('pyth hermes 502'));
+    const { fake } = makeFakeClient();
+    const runtime = new VaultRuntime(makeConfig(makeNoopStrategy()), {
+      client: fake as unknown as NonNullable<
+        ConstructorParameters<typeof VaultRuntime>[1]
+      >['client'],
+      logger: silentLogger,
+    });
+    const receipt = await runtime.tickOnce();
+    expect(receipt).toBeNull();
+    expect(fake.signAndExecuteTransaction).not.toHaveBeenCalled();
+  });
+
+  it('classifies an agent-state RPC failure as a tick skip', async () => {
+    (loadAgentState as Mock).mockRejectedValueOnce(new Error('ENOTFOUND fullnode'));
+    const { fake } = makeFakeClient();
+    const runtime = new VaultRuntime(makeConfig(makeNoopStrategy()), {
+      client: fake as unknown as NonNullable<
+        ConstructorParameters<typeof VaultRuntime>[1]
+      >['client'],
+      logger: silentLogger,
+    });
+    const receipt = await runtime.tickOnce();
+    expect(receipt).toBeNull();
+    expect(fake.signAndExecuteTransaction).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

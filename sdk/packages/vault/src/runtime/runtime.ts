@@ -34,6 +34,29 @@ export type { RuntimeConfig } from './config.js';
 const DEFAULT_TICK_INTERVAL_MS = 600_000;
 const DEFAULT_MAX_FAILURES = 5;
 const DEFAULT_WALRUS_EPOCHS = 5;
+
+/**
+ * Thrown when a tick is aborted before any PTB is constructed because an
+ * upstream external dependency is unhealthy (Sui RPC, Pyth, DeepBook
+ * pool fetch). The runtime logs and skips — the tick does NOT count
+ * toward `consecutiveFailures`, because the runtime itself isn't broken;
+ * the network is. The next tick interval will retry from scratch.
+ *
+ * Failures AFTER a PTB is built and signed (e.g. chain rejected the
+ * transaction) are still real `consecutiveFailures` because they imply
+ * a bug or a wrong config. We never half-sign.
+ */
+export class TickSkippedError extends Error {
+  constructor(
+    readonly stage: 'rpc' | 'agent-state' | 'market' | 'memory',
+    cause: unknown,
+  ) {
+    const m = cause instanceof Error ? cause.message : String(cause);
+    super(`tick skipped (${stage}): ${m}`);
+    this.name = 'TickSkippedError';
+    this.cause = cause;
+  }
+}
 /** Trigger refuel when session SUI drops below this many MIST (0.02 SUI). */
 const DEFAULT_REFUEL_THRESHOLD_MIST = 20_000_000n;
 /** Default top-up size when refueling (0.05 SUI). */
@@ -110,6 +133,17 @@ export class VaultRuntime {
       this.#consecutiveFailures = 0;
       return receipt;
     } catch (err) {
+      // Skips don't count toward the kill-switch — the runtime is fine,
+      // an upstream is hiccupping. Reset the counter so a long Pyth
+      // outage doesn't masquerade as runtime instability.
+      if (err instanceof TickSkippedError) {
+        this.#consecutiveFailures = 0;
+        this.#logger.warn(
+          { stage: err.stage, err: err.cause },
+          'tick skipped due to transient external outage — will retry next interval',
+        );
+        return null;
+      }
       this.#consecutiveFailures += 1;
       this.#logger.error(
         { err, consecutiveFailures: this.#consecutiveFailures },
@@ -140,7 +174,11 @@ export class VaultRuntime {
     while (!this.#stopping) {
       try {
         await this.tickOnce();
-      } catch {
+      } catch (err) {
+        // `tickOnce` already classified + logged the error. Swallow it
+        // here so the loop survives — only `#stopping` (set when the
+        // kill-switch trips, or on shutdown) breaks us out.
+        void err;
         if (this.#stopping) break;
       }
       if (!this.#stopping) {
@@ -150,18 +188,34 @@ export class VaultRuntime {
   }
 
   async #tickOnceInner(): Promise<ExecutionReceipt | null> {
+    // Session key load failures are config errors (real failures, not
+    // transient) and intentionally NOT wrapped as skips — we want them
+    // to trip the kill switch so the operator notices the bad config.
     const signer = await loadSessionKeypair({
       ...(this.#config.sessionKeyPath ? { sessionKeyPath: this.#config.sessionKeyPath } : {}),
       ...(this.#config.sessionKeyEnv ? { sessionKeyEnv: this.#config.sessionKeyEnv } : {}),
     });
-    const systemState = await this.#client.getLatestSuiSystemState();
-    const currentEpoch = BigInt(systemState.epoch);
-    const agent = await loadAgentState({
-      client: this.#client,
-      agentId: this.#config.agentId,
-      packageId: this.#config.packageId,
-      packageHistory: this.#config.packageHistory,
-    });
+    // Pre-PTB external calls: classify failures as skips so a flaky
+    // RPC / DeepBook / Pyth doesn't masquerade as a runtime defect and
+    // trip `maxConsecutiveFailures`.
+    let currentEpoch: bigint;
+    try {
+      const systemState = await this.#client.getLatestSuiSystemState();
+      currentEpoch = BigInt(systemState.epoch);
+    } catch (err) {
+      throw new TickSkippedError('rpc', err);
+    }
+    let agent: Awaited<ReturnType<typeof loadAgentState>>;
+    try {
+      agent = await loadAgentState({
+        client: this.#client,
+        agentId: this.#config.agentId,
+        packageId: this.#config.packageId,
+        packageHistory: this.#config.packageHistory,
+      });
+    } catch (err) {
+      throw new TickSkippedError('agent-state', err);
+    }
 
     if (agent.identity.revoked || currentEpoch >= agent.identity.expiryEpoch) {
       this.#logger.info(
@@ -282,11 +336,16 @@ export class VaultRuntime {
     }
     const activeStrategy: Strategy = resolution.strategy;
 
-    const market = await loadMarketSnapshot({
-      client: this.#client,
-      pools: requiredPoolsForStrategy(activeStrategy),
-      senderAddress: signer.toSuiAddress(),
-    });
+    let market: Awaited<ReturnType<typeof loadMarketSnapshot>>;
+    try {
+      market = await loadMarketSnapshot({
+        client: this.#client,
+        pools: requiredPoolsForStrategy(activeStrategy),
+        senderAddress: signer.toSuiAddress(),
+      });
+    } catch (err) {
+      throw new TickSkippedError('market', err);
+    }
 
     const holdings = priceHoldings(agent.holdings, market.prices);
     const navUsd = holdings.reduce((sum, holding) => sum + holding.valueUsd, 0);
