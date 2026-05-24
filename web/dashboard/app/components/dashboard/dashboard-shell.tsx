@@ -29,6 +29,18 @@ const InBrowserRuntimePanel = dynamic(
     ),
   },
 );
+
+// MemWal recall panel — same client-only constraints (File API + SDK) as the
+// runtime panel, so it's loaded ssr:false too.
+const MemWalRecallPanel = dynamic(
+  () => import('./memwal-recall-panel').then((m) => m.MemWalRecallPanel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="card-flat p-6 text-sm text-ink-soft">Loading memory…</div>
+    ),
+  },
+);
 import { CodeTag } from '../ui/code-tag';
 import {
   SAMPLE_REBALANCE_HISTORY,
@@ -201,6 +213,12 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
             />
           )}
           {liveVault && <ArtifactsPanel vaultId={liveVault.agentId} />}
+          {live && (
+            <MemWalRecallPanel
+              memwalAccountId={live.identity.memwalAccountId}
+              memwalNamespace={live.identity.memwalNamespace}
+            />
+          )}
           {liveVault && <InBrowserRuntimePanel vaultId={liveVault.agentId} />}
           <DangerZone
             {...(liveVault ? { vaultId: liveVault.agentId } : {})}

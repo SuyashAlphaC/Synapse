@@ -63,13 +63,41 @@ export interface CreateMemWalClientArgs {
  * when the agent runtime shuts down to wipe the Ed25519 key from memory.
  */
 export function createMemWalClient(args: CreateMemWalClientArgs): MemWal {
-  const accountId = bytesToAsciiHex(args.identity.memwalAccountId);
-  const namespace = utf8FromBytes(args.identity.memwalNamespace);
-  const config: MemWalConfig = {
-    key: args.credentials.delegateKeyHex,
-    accountId,
-    namespace,
+  return createMemWalClientFromParts({
+    memwalAccountId: args.identity.memwalAccountId,
+    memwalNamespace: args.identity.memwalNamespace,
+    delegateKeyHex: args.credentials.delegateKeyHex,
     ...(args.credentials.serverUrl ? { serverUrl: args.credentials.serverUrl } : {}),
+  });
+}
+
+/**
+ * The raw MemWal identity parts — the account id + namespace byte fields of
+ * an `AgentIdentity`, plus the delegate secret. Used by callers (e.g. the
+ * dashboard's recall panel) that hold the on-chain identity in a different
+ * shape than the full SDK `AgentIdentity` but still need a client.
+ */
+export interface MemWalClientParts {
+  /** `AgentIdentity.memwalAccountId` bytes (ASCII-hex of the account id). */
+  memwalAccountId: Uint8Array;
+  /** `AgentIdentity.memwalNamespace` bytes (UTF-8 namespace string). */
+  memwalNamespace: Uint8Array;
+  /** Ed25519 delegate private key as hex (64 chars, no `0x`). */
+  delegateKeyHex: string;
+  /** Optional MemWal relayer URL (e.g. a same-origin proxy in the browser). */
+  serverUrl?: string;
+}
+
+/**
+ * Construct a MemWal client from the raw identity byte fields rather than a
+ * full `AgentIdentity`. Same decoding as {@link createMemWalClient}.
+ */
+export function createMemWalClientFromParts(parts: MemWalClientParts): MemWal {
+  const config: MemWalConfig = {
+    key: parts.delegateKeyHex,
+    accountId: bytesToAsciiHex(parts.memwalAccountId),
+    namespace: utf8FromBytes(parts.memwalNamespace),
+    ...(parts.serverUrl ? { serverUrl: parts.serverUrl } : {}),
   };
   return MemWal.create(config);
 }
