@@ -36,19 +36,6 @@ export function DashboardToolbar() {
     }
   }
 
-  function onExport() {
-    if (typeof window === 'undefined') return;
-    toast.push({
-      variant: 'info',
-      title: 'Opening print dialog',
-      body: 'Choose "Save as PDF" to export this view.',
-      durationMs: 3500,
-    });
-    // The print stylesheet (`@media print` in globals.css) reformats the
-    // dashboard for a clean PDF render — no external library required.
-    window.print();
-  }
-
   return (
     <div className="flex items-center justify-between">
       <nav className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.18em] text-ink-mute">
@@ -65,9 +52,6 @@ export function DashboardToolbar() {
       <div className="flex items-center gap-3">
         <button className="btn-flat" data-variant="ghost" onClick={onShare}>
           Share
-        </button>
-        <button className="btn-flat" data-variant="ghost" onClick={onExport}>
-          Export PDF
         </button>
       </div>
     </div>
