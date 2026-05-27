@@ -72,6 +72,21 @@ export interface RuntimeConfig {
   /** Walrus storage epochs for audit reports. Default 5. */
   walrusEpochs?: number;
   /**
+   * When set, the runtime Seal-encrypts each audit report before uploading
+   * it to Walrus, gated by `synapse_seal::policy::seal_approve`. This MUST
+   * be the object ID of a freshly-published (first-version) `synapse_seal`
+   * package — Seal rejects upgraded packages as identity namespaces. Wired
+   * from `SYNAPSE_SEAL_PACKAGE_ID`. Unset (default) → reports upload as
+   * plaintext, so the browser path and existing operators are unaffected.
+   */
+  sealPackageId?: string;
+  /**
+   * Override the Seal key-server object IDs (comma-separated, from
+   * `SYNAPSE_SEAL_KEY_SERVERS`). Defaults to the Mysten testnet servers
+   * baked into `@synapse-core/client`.
+   */
+  sealKeyServerObjectIds?: readonly string[];
+  /**
    * Optional JSON override mapping `Strategy` object IDs to runtime slugs.
    * Wired through `SYNAPSE_STRATEGY_REGISTRY_JSON`. Lets operators teach the
    * runtime about newly-published strategies without recompiling.
@@ -212,6 +227,14 @@ export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig
       : {}),
     ...(env.SYNAPSE_MAX_FAILURES ? { maxConsecutiveFailures: Number(env.SYNAPSE_MAX_FAILURES) } : {}),
     ...(env.SYNAPSE_WALRUS_EPOCHS ? { walrusEpochs: Number(env.SYNAPSE_WALRUS_EPOCHS) } : {}),
+    ...(env.SYNAPSE_SEAL_PACKAGE_ID ? { sealPackageId: env.SYNAPSE_SEAL_PACKAGE_ID } : {}),
+    ...(env.SYNAPSE_SEAL_KEY_SERVERS
+      ? {
+          sealKeyServerObjectIds: env.SYNAPSE_SEAL_KEY_SERVERS.split(',')
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0),
+        }
+      : {}),
     ...(env.SYNAPSE_STRATEGY_REGISTRY_JSON
       ? { strategyRegistryJson: env.SYNAPSE_STRATEGY_REGISTRY_JSON }
       : {}),

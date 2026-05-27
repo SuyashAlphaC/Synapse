@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'motion/react';
 import { useSuiClient } from '@mysten/dapp-kit';
@@ -9,7 +9,8 @@ import {
   listVaultArtifacts,
   type ArtifactRecord,
 } from '@/lib/artifacts-client';
-import { NETWORK } from '@/lib/synapse-config';
+import { decryptSealedArtifact } from '@/lib/seal-decrypt';
+import { NETWORK, SYNAPSE_SEAL_PACKAGE_ID } from '@/lib/synapse-config';
 import { CodeTag } from '../ui/code-tag';
 import { Modal } from '../ui/modal';
 import { useToast } from '../ui/toast';
@@ -31,6 +32,19 @@ export function ArtifactsPanel({ vaultId }: ArtifactsPanelProps) {
   const toast = useToast();
   const [selected, setSelected] = useState<ArtifactRecord | null>(null);
 
+  // Seal decrypt state for the selected artifact (only used when it's
+  // sealEncrypted). Reset whenever a different artifact is opened/closed.
+  const [keyText, setKeyText] = useState<string | null>(null);
+  const [keyName, setKeyName] = useState<string | null>(null);
+  const [decBusy, setDecBusy] = useState(false);
+  const [decText, setDecText] = useState<string | null>(null);
+  const [decErr, setDecErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDecText(null);
+    setDecErr(null);
+  }, [selected]);
+
   const listing = useQuery({
     queryKey: ['artifacts', vaultId],
     queryFn: () => listVaultArtifacts({ client, vaultId }),
@@ -48,9 +62,34 @@ export function ArtifactsPanel({ vaultId }: ArtifactsPanelProps) {
         signal,
       });
     },
-    enabled: selected !== null,
+    // Sealed blobs are ciphertext — don't fetch them as text (that shows
+    // garbage). The decrypt panel fetches the raw bytes itself.
+    enabled: selected !== null && !selected.sealEncrypted,
     staleTime: 5 * 60_000,
   });
+
+  const onDecrypt = useCallback(async () => {
+    if (!selected || !keyText) return;
+    setDecBusy(true);
+    setDecErr(null);
+    try {
+      const url = `https://aggregator.walrus-${WALRUS_NETWORK}.walrus.space/v1/blobs/${selected.walrusBlobId}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Walrus aggregator returned ${res.status}`);
+      const encrypted = new Uint8Array(await res.arrayBuffer());
+      const text = await decryptSealedArtifact({
+        suiClient: client,
+        sealPackageId: SYNAPSE_SEAL_PACKAGE_ID,
+        encrypted,
+        keyFileContents: keyText,
+      });
+      setDecText(text);
+    } catch (err) {
+      setDecErr(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDecBusy(false);
+    }
+  }, [selected, keyText, client]);
 
   return (
     <div className="card-flat p-6">
@@ -153,38 +192,93 @@ export function ArtifactsPanel({ vaultId }: ArtifactsPanelProps) {
               </p>
             </div>
 
-            <AnimatePresence mode="popLayout">
-              {content.isLoading && (
-                <motion.p
-                  key="loading"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="font-mono text-xs text-ink-mute"
-                >
-                  Fetching from Walrus aggregator…
-                </motion.p>
-              )}
-              {content.isError && (
-                <motion.p
-                  key="error"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="rounded-sm border-l-2 border-state-revoked bg-paper p-3 font-mono text-[11px] text-ink-soft"
-                >
-                  Aggregator error: {(content.error as Error).message}
-                </motion.p>
-              )}
-              {content.data !== undefined && content.data !== null && (
-                <motion.pre
-                  key="content"
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="max-h-[420px] overflow-auto rounded-sm border border-divider bg-paper p-3 font-mono text-[11px] leading-relaxed text-ink whitespace-pre-wrap"
-                >
-                  {content.data}
-                </motion.pre>
-              )}
-            </AnimatePresence>
+            {selected.sealEncrypted ? (
+              <div className="space-y-3">
+                {!SYNAPSE_SEAL_PACKAGE_ID ? (
+                  <p className="rounded-sm border-l-2 border-state-expired bg-paper p-3 font-mono text-[11px] text-ink-soft">
+                    This artifact is Seal-encrypted. Set{' '}
+                    <code className="text-ink">NEXT_PUBLIC_SYNAPSE_SEAL_PACKAGE_ID</code> (the
+                    published <code className="text-ink">synapse_seal</code> package) to enable
+                    in-browser decryption.
+                  </p>
+                ) : (
+                  <>
+                    <p className="font-mono text-[11px] text-ink-soft">
+                      Seal-encrypted blob. Pick the vault{' '}
+                      <code className="text-ink">.key</code> — the session key authorizes
+                      decryption and never leaves your browser.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="file"
+                        accept=".key,.json,application/json"
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0];
+                          if (!f) return;
+                          setKeyText(await f.text());
+                          setKeyName(f.name);
+                        }}
+                        className="block w-full text-xs file:mr-3 file:rounded-sm file:border file:border-ink file:bg-paper-strong file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-ink hover:file:bg-paper"
+                      />
+                      <button
+                        className="btn-flat"
+                        data-variant="accent"
+                        disabled={!keyText || decBusy}
+                        onClick={onDecrypt}
+                      >
+                        {decBusy ? 'Decrypting…' : 'Decrypt'}
+                      </button>
+                    </div>
+                    {keyName && (
+                      <span className="font-mono text-[10px] text-state-active">✓ {keyName}</span>
+                    )}
+                    {decErr && (
+                      <p className="rounded-sm border-l-2 border-state-revoked bg-paper p-3 font-mono text-[11px] text-ink-soft">
+                        Decrypt failed: {decErr}
+                      </p>
+                    )}
+                    {decText !== null && (
+                      <pre className="max-h-[420px] overflow-auto rounded-sm border border-divider bg-paper p-3 font-mono text-[11px] leading-relaxed text-ink whitespace-pre-wrap">
+                        {decText}
+                      </pre>
+                    )}
+                  </>
+                )}
+              </div>
+            ) : (
+              <AnimatePresence mode="popLayout">
+                {content.isLoading && (
+                  <motion.p
+                    key="loading"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="font-mono text-xs text-ink-mute"
+                  >
+                    Fetching from Walrus aggregator…
+                  </motion.p>
+                )}
+                {content.isError && (
+                  <motion.p
+                    key="error"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="rounded-sm border-l-2 border-state-revoked bg-paper p-3 font-mono text-[11px] text-ink-soft"
+                  >
+                    Aggregator error: {(content.error as Error).message}
+                  </motion.p>
+                )}
+                {content.data !== undefined && content.data !== null && (
+                  <motion.pre
+                    key="content"
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="max-h-[420px] overflow-auto rounded-sm border border-divider bg-paper p-3 font-mono text-[11px] leading-relaxed text-ink whitespace-pre-wrap"
+                  >
+                    {content.data}
+                  </motion.pre>
+                )}
+              </AnimatePresence>
+            )}
           </div>
         )}
       </Modal>

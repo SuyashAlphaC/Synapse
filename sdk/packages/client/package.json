@@ -25,6 +25,10 @@
     "./zklogin": {
       "types": "./dist/zklogin.d.ts",
       "default": "./dist/zklogin.js"
+    },
+    "./seal": {
+      "types": "./dist/seal.d.ts",
+      "default": "./dist/seal.js"
     }
   },
   "files": [

@@ -135,3 +135,5 @@ export async function sealDecrypt(
 }
 
 export { SessionKey as SealSessionKey };
+/** Parse a Seal `EncryptedObject` to read its embedded `id` / `packageId`. */
+export { EncryptedObject } from '@mysten/seal';

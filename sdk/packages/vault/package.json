@@ -25,6 +25,10 @@
     "./runtime": {
       "types": "./dist/runtime/index.d.ts",
       "default": "./dist/runtime/index.js"
+    },
+    "./keypair": {
+      "types": "./dist/runtime/keypair.d.ts",
+      "default": "./dist/runtime/keypair.js"
     }
   },
   "bin": {

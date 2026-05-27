@@ -5,6 +5,9 @@ import {
   createWalrusClient,
   publishArtifactCall,
   uploadBlob,
+  buildSynapseSealClient,
+  sealEncrypt,
+  sealIdForAddress,
   type WalrusUploadResult,
 } from '@synapse-core/client';
 import type { AuditReport } from '../types.js';
@@ -56,14 +59,28 @@ export interface PublishReportResult {
   txDigest: string;
 }
 
+export interface SealUploadOptions {
+  /** First-version `synapse_seal` package ID (the seal_approve namespace). */
+  packageId: string;
+  /** Optional key-server object-id override. */
+  keyServerObjectIds?: readonly string[];
+}
+
 export async function uploadReportBlob(args: {
   suiClient: SuiJsonRpcClient;
   walrusNetwork: 'testnet' | 'mainnet';
   signer: Ed25519Keypair;
   report: AuditReport;
   epochs: number;
+  /**
+   * When present, the report is Seal-encrypted before upload. The Seal
+   * identity is prefixed with the signer (session) address, so only that
+   * key can later decrypt it via `synapse_seal::policy::seal_approve`.
+   */
+  seal?: SealUploadOptions;
 }): Promise<WalrusUploadResult> {
-  const payload = new TextEncoder().encode(args.report.markdown);
+  const plaintext = new TextEncoder().encode(args.report.markdown);
+  const payload = args.seal ? await sealEncryptReport(args, plaintext) : plaintext;
 
   // In the browser, skip the @mysten/walrus direct path entirely.
   // That SDK loads a Node/WASM binary (walrus_wasm_bg.wasm) at
@@ -122,6 +139,33 @@ export async function uploadReportBlob(args: {
       epochs: args.epochs,
     });
   }
+}
+
+/**
+ * Seal-encrypt a report under an address-prefixed identity. Encryption only
+ * needs the key-server public keys + namespace package (no on-chain call), so
+ * this works the moment `synapse_seal` is published.
+ */
+async function sealEncryptReport(
+  args: {
+    suiClient: SuiJsonRpcClient;
+    signer: Ed25519Keypair;
+    report: AuditReport;
+    seal?: SealUploadOptions;
+  },
+  plaintext: Uint8Array,
+): Promise<Uint8Array> {
+  const seal = args.seal;
+  if (!seal) return plaintext;
+  const client = buildSynapseSealClient({
+    suiClient: args.suiClient,
+    ...(seal.keyServerObjectIds ? { keyServerObjectIds: seal.keyServerObjectIds } : {}),
+  });
+  const id = sealIdForAddress(
+    args.signer.toSuiAddress(),
+    new TextEncoder().encode(args.report.planId),
+  );
+  return sealEncrypt(client, { payload: plaintext, packageId: seal.packageId, id });
 }
 
 export async function publishReport(args: PublishReportArgs): Promise<PublishReportResult> {

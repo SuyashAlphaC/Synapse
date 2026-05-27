@@ -7,8 +7,8 @@ import { AuditTimeline } from './audit-timeline';
 import { DangerZone } from './danger-zone';
 import { DashboardToolbar } from './dashboard-toolbar';
 import { LiveVaultBanner } from './live-vault-banner';
-import { PolicyPanel } from './policy-panel';
 import { ArtifactsPanel } from './artifacts-panel';
+import { PolicyPanel } from './policy-panel';
 import { RunTickButton } from './run-tick-button';
 import { SessionKeyPanel } from './session-key-panel';
 import { DepositPanel } from './deposit-panel';
@@ -40,8 +40,7 @@ const MemWalRecallPanel = dynamic(
       <div className="card-flat p-6 text-sm text-ink-soft">Loading memory…</div>
     ),
   },
-);
-import { CodeTag } from '../ui/code-tag';
+);import { CodeTag } from '../ui/code-tag';
 import {
   SAMPLE_REBALANCE_HISTORY,
   SAMPLE_TIMELINE,

@@ -64,6 +64,19 @@ export interface BuildRebalancePTBArgs {
   deepbookPkg: string;
   /** Caller-supplied DeepBookV3 swap function. */
   swap: DeepBookSwapFn;
+  /**
+   * Whether the uploaded report blob is Seal-encrypted. When true the
+   * artifact is recorded with `seal_encrypted = true` and an opaque MIME
+   * type. Default false (plaintext markdown).
+   */
+  sealEncrypted?: boolean;
+  /**
+   * sha256 + byte size of the ACTUAL uploaded blob (ciphertext when sealed).
+   * When omitted, falls back to the plaintext report's hash/size. Pass the
+   * `WalrusUploadResult` values so the on-chain ArtifactRef matches the blob.
+   */
+  blobSha256?: Uint8Array;
+  blobSizeBytes?: number;
 }
 
 export interface BuildRebalancePTBResult {
@@ -78,6 +91,7 @@ export interface BuildRebalancePTBResult {
 export function buildRebalancePTB(args: BuildRebalancePTBArgs): BuildRebalancePTBResult {
   const { tx, synapsePackageId, vaultId, plan, report, reportWalrusBlobId, deepbookPkg, swap } =
     args;
+  const sealEncrypted = args.sealEncrypted ?? false;
 
   for (const trade of plan.trades) {
     // 1. Authorize the swap (pre-flight policy gate + event)
@@ -138,10 +152,12 @@ export function buildRebalancePTB(args: BuildRebalancePTBArgs): BuildRebalancePT
       ? publishArtifactCall(tx, synapsePackageId, {
           agentId: vaultId,
           walrusBlobId: new TextEncoder().encode(reportWalrusBlobId),
-          sha256: report.sha256,
-          mimeType: 'text/markdown',
-          sizeBytes: BigInt(new TextEncoder().encode(report.markdown).byteLength),
-          sealEncrypted: false,
+          sha256: args.blobSha256 ?? report.sha256,
+          mimeType: sealEncrypted ? 'application/octet-stream' : 'text/markdown',
+          sizeBytes: BigInt(
+            args.blobSizeBytes ?? new TextEncoder().encode(report.markdown).byteLength,
+          ),
+          sealEncrypted,
           label: `rebalance-${plan.planId}`,
         })
       : null;

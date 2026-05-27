@@ -3,7 +3,8 @@ import {
   recall,
   type RecallResult,
 } from '@synapse-core/memwal-bridge';
-import { loadMemwalDelegateFromKeyFile } from '@synapse-core/vault';
+// walrus-free subpath — the vault root barrel pulls @mysten/walrus (WASM).
+import { loadMemwalDelegateFromKeyFile } from '@synapse-core/vault/keypair';
 
 export type { RecallResult } from '@synapse-core/memwal-bridge';
 

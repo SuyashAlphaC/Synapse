@@ -71,7 +71,7 @@ import {
   recallStrategyMemory,
   rememberStrategyOutcome,
 } from './memory.js';
-import { uploadReportBlob, parseArtifactSlot } from './publisher.js';
+import { uploadReportBlob, parseArtifactSlot, type SealUploadOptions } from './publisher.js';
 import { deepbookSwap, DEEPBOOK_PACKAGE_ID_TESTNET } from './deepbook.js';
 import { loadSessionKeypair, loadMemwalDelegateFromKeyFile } from './keypair.js';
 import { createLogger, type VaultLogger } from './logger.js';
@@ -522,6 +522,7 @@ export class VaultRuntime {
     // attestation::log_action + record_tick_performance calls still land
     // and capture the audit trail. The rationale blob is fetchable
     // metadata; missing it doesn't change what the agent actually did.
+    const sealOpts = this.#sealOptions();
     let upload: Awaited<ReturnType<typeof uploadReportBlob>> | null = null;
     try {
       upload = await uploadReportBlob({
@@ -530,6 +531,7 @@ export class VaultRuntime {
         signer,
         report,
         epochs: this.#config.walrusEpochs ?? DEFAULT_WALRUS_EPOCHS,
+        ...(sealOpts ? { seal: sealOpts } : {}),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -548,6 +550,8 @@ export class VaultRuntime {
       reportWalrusBlobId: upload?.blobId ?? '',
       deepbookPkg: DEEPBOOK_PACKAGE_ID_TESTNET,
       swap: deepbookSwap,
+      sealEncrypted: Boolean(sealOpts),
+      ...(upload ? { blobSha256: upload.sha256, blobSizeBytes: upload.sizeBytes } : {}),
     });
     // Record performance for the on-chain reputation registry. Real alpha
     // (in bps, split into pos/neg buckets) computed against last tick's
@@ -799,6 +803,7 @@ export class VaultRuntime {
     // The on-chain attestation + record_tick_performance still land, so
     // the dashboard's Runtime Health panel + strategy reputation update
     // regardless.
+    const sealOpts = this.#sealOptions();
     let upload: Awaited<ReturnType<typeof uploadReportBlob>> | null = null;
     try {
       upload = await uploadReportBlob({
@@ -807,6 +812,7 @@ export class VaultRuntime {
         signer,
         report,
         epochs: this.#config.walrusEpochs ?? DEFAULT_WALRUS_EPOCHS,
+        ...(sealOpts ? { seal: sealOpts } : {}),
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -822,9 +828,9 @@ export class VaultRuntime {
         agentId: this.#config.agentId,
         walrusBlobId: new TextEncoder().encode(upload.blobId),
         sha256: upload.sha256,
-        mimeType: 'text/markdown',
+        mimeType: sealOpts ? 'application/octet-stream' : 'text/markdown',
         sizeBytes: BigInt(upload.sizeBytes),
-        sealEncrypted: false,
+        sealEncrypted: Boolean(sealOpts),
         label: `audit-${report.planId}`,
       });
     }
@@ -914,6 +920,21 @@ export class VaultRuntime {
    * Capped at +/- 5000bps (50%) per tick to keep a single anomalous
    * read from polluting the lifetime reputation counters.
    */
+  /**
+   * Seal options for report uploads, or undefined when Seal is not
+   * configured (`SYNAPSE_SEAL_PACKAGE_ID` unset). Off by default, so the
+   * browser path and existing operators upload plaintext unchanged.
+   */
+  #sealOptions(): SealUploadOptions | undefined {
+    if (!this.#config.sealPackageId) return undefined;
+    return {
+      packageId: this.#config.sealPackageId,
+      ...(this.#config.sealKeyServerObjectIds
+        ? { keyServerObjectIds: this.#config.sealKeyServerObjectIds }
+        : {}),
+    };
+  }
+
   #computeAlpha(
     currentHoldings: HoldingSnapshot[],
     prices: Record<string, number>,

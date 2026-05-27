@@ -40,6 +40,14 @@ export const SYNAPSE_UPGRADE_CAP =
   '0x12d4f7b948f2433b2332b63955290ebfec5d674779fb3006c4c9ce831ad48563';
 
 /**
+ * First-version `synapse_seal` package ID — the Seal access-policy namespace
+ * (`policy::seal_approve`). Empty until you publish `move/synapse_seal` and
+ * set `NEXT_PUBLIC_SYNAPSE_SEAL_PACKAGE_ID`. When empty, the decrypt UI shows
+ * a "Seal not configured" hint instead of attempting decryption.
+ */
+export const SYNAPSE_SEAL_PACKAGE_ID = process.env['NEXT_PUBLIC_SYNAPSE_SEAL_PACKAGE_ID'] ?? '';
+
+/**
  * Every package version we've ever deployed for `synapse_core`, newest
  * first. Sui events are typed by the package that originally emitted
  * them — so a Strategy published under v1 has v1-typed
