@@ -32,7 +32,8 @@
     }
   },
   "bin": {
-    "synapse-vault-runtime": "./dist/runtime/bin/run.js"
+    "synapse-vault-runtime": "./dist/runtime/bin/run.js",
+    "synapse-cross-agent-read": "./dist/runtime/bin/cross-agent-read.js"
   },
   "files": [
     "dist",
