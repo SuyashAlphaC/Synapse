@@ -5,13 +5,15 @@ import { motion } from 'motion/react';
 import {
   useCurrentAccount,
   useSignAndExecuteTransaction,
+  useSignPersonalMessage,
   useSuiClient,
 } from '@mysten/dapp-kit';
+import { removeDelegateKey } from '@mysten-incubation/memwal/account';
 import { Modal } from '../ui/modal';
 import { CodeTag } from '../ui/code-tag';
 import { useToast } from '../ui/toast';
 import { buildRevokePTB } from '@/lib/ptb';
-import { explorerTxUrl } from '@/lib/synapse-config';
+import { explorerTxUrl, MEMWAL_PACKAGE_ID } from '@/lib/synapse-config';
 import { shortenHash } from '@/lib/format';
 
 interface DangerZoneProps {
@@ -25,6 +27,13 @@ interface DangerZoneProps {
   strategyId?: string;
   /** True when the vault is already revoked on-chain. Disables the button. */
   revoked?: boolean;
+  /**
+   * MemWal account id + delegate public key from the live identity. When
+   * present, revoking also removes the delegate from the MemWal account
+   * (the off-chain half of the kill switch). Both are owner-signed.
+   */
+  memwalAccountId?: Uint8Array;
+  memwalDelegateKeyId?: Uint8Array;
 }
 
 /**
@@ -36,10 +45,17 @@ interface DangerZoneProps {
  * shows a clear "already revoked" state so the owner can't double-fire
  * (which would abort EAlreadyRevoked at the Move VM layer anyway).
  */
-export function DangerZone({ vaultId, strategyId, revoked }: DangerZoneProps) {
+export function DangerZone({
+  vaultId,
+  strategyId,
+  revoked,
+  memwalAccountId,
+  memwalDelegateKeyId,
+}: DangerZoneProps) {
   const account = useCurrentAccount();
   const suiClient = useSuiClient();
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
   const toast = useToast();
 
   const [open, setOpen] = useState(false);
@@ -48,6 +64,51 @@ export function DangerZone({ vaultId, strategyId, revoked }: DangerZoneProps) {
   );
   const [digest, setDigest] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Off-chain half of the kill switch: after the on-chain revoke lands,
+  // remove the MemWal delegate so the (now-powerless) session key also loses
+  // memory read/write. Owner-signed with the same connected wallet — only the
+  // MemWal account owner may remove a delegate. Best-effort: the on-chain
+  // revoke is the authoritative kill switch, so a MemWal hiccup is surfaced as
+  // a warning, never a revoke failure. No-ops for vaults minted without MemWal.
+  async function cascadeMemwalRevoke() {
+    if (!account) return;
+    if (!memwalAccountId || memwalAccountId.length === 0) return;
+    if (!memwalDelegateKeyId || memwalDelegateKeyId.length === 0) return;
+    try {
+      const res = await removeDelegateKey({
+        packageId: MEMWAL_PACKAGE_ID,
+        accountId: new TextDecoder().decode(memwalAccountId),
+        publicKey: memwalDelegateKeyId,
+        suiClient,
+        walletSigner: {
+          address: account.address,
+          signAndExecuteTransaction: async ({ transaction }) => {
+            const r = await signAndExecute({ transaction });
+            return { digest: r.digest };
+          },
+          signPersonalMessage: async ({ message }) => {
+            const r = await signPersonalMessage({ message });
+            return { signature: r.signature };
+          },
+        },
+      });
+      toast.push({
+        variant: 'success',
+        title: 'MemWal delegate revoked',
+        body: `delegate removed · tx ${shortenHash(res.digest)}`,
+        durationMs: 7000,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.push({
+        variant: 'warn',
+        title: 'On-chain revoke done — MemWal delegate removal failed',
+        body: `${msg.slice(0, 130)} · remove it manually in the MemWal dashboard`,
+        durationMs: 11000,
+      });
+    }
+  }
 
   async function performRevoke() {
     if (!vaultId || !strategyId) {
@@ -87,6 +148,8 @@ export function DangerZone({ vaultId, strategyId, revoked }: DangerZoneProps) {
         body: `tx ${shortenHash(result.digest)} confirmed`,
         durationMs: 7000,
       });
+      // Complete the cascade off-chain (best-effort).
+      await cascadeMemwalRevoke();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setErrorMsg(msg);

@@ -223,6 +223,12 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
             {...(liveVault ? { vaultId: liveVault.agentId } : {})}
             {...(live?.identity.strategyId ? { strategyId: live.identity.strategyId } : {})}
             {...(live?.identity.revoked ? { revoked: true } : {})}
+            {...(live
+              ? {
+                  memwalAccountId: live.identity.memwalAccountId,
+                  memwalDelegateKeyId: live.identity.memwalDelegateKeyId,
+                }
+              : {})}
           />
         </div>
       </div>
