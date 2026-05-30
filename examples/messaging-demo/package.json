@@ -1,0 +1,22 @@
+{
+  "name": "synapse-messaging-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sui Stack Messaging demo — isolated (pins @mysten/sui 1.x for SDK compat) + on-chain record_send/receive to synapse_core",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "send": "tsx src/send-message.ts"
+  },
+  "dependencies": {
+    "@mysten/messaging": "0.3.0",
+    "@mysten/sui": "^1.45.2",
+    "@mysten/seal": "^0.9.6",
+    "@mysten/walrus": "^0.8.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0"
+  }
+}

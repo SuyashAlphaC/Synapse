@@ -51,7 +51,7 @@ place, not yet wired into a live demo flow (flagged honestly).
 | Inspect/debug agent memory on Walrus | **LIVE** | Recall panel (semantic query → SEAL-decrypted hits → Walrus blob links) + Artifacts panel + audit timeline |
 | **Seal** (named ref) | **LIVE** | `synapse_seal` policy published `0x14a1cbc6…69bc91a`; encrypt→`seal_approve`→decrypt round-trip verified · `44f18b3` · [`docs/SEAL.md`](./SEAL.md) |
 | **Walrus Sites** (named ref) | **LIVE** | Marketing site published to Walrus Sites — Site object `0x55c33a39…001a` · [`web/site/`](../web/site/) |
-| **Sui Stack Messaging** (named ref) | **PROTOCOL-READY** | `messaging_bridge.move` records send/receive digests + channel refs; not yet wired to a live `@mysten/messaging` flow (honest gap) |
+| **Sui Stack Messaging** (named ref) | **CODE-COMPLETE** | Real `@mysten/messaging` send (Walrus-stored, Seal-encrypted) + on-chain `record_send`/`record_receive` correlator — [`examples/messaging-demo`](../examples/messaging-demo/). Isolated package (SDK pins sui 1.x; ours is 2.x). Typecheck-verified; live run pending a funded owner wallet |
 | Cryptographic revocation cascade | **LIVE** | On-chain revoke + owner-signed MemWal delegate removal — [`danger-zone.tsx`](../web/dashboard/app/components/dashboard/danger-zone.tsx) · `5274518` |
 
 ---
@@ -161,7 +161,7 @@ Forbidden-pattern scan:          clean
 
 | Gap | Why it's acceptable |
 |---|---|
-| Sui Stack Messaging not live-wired | `messaging_bridge.move` is in place and records send/receive digests; wiring the off-chain `@mysten/messaging` channel flow (channel create → send → on-chain record) is the next step. Marked PROTOCOL-READY above, not claimed as live. |
+| Sui Stack Messaging not run end-to-end | Full real flow is built + typecheck-verified ([`examples/messaging-demo`](../examples/messaging-demo/)); channel creation needs a funded owner wallet, so the live run is operator-side (same model as the Seal publish). |
 | No third-party security audit | Judges expect audit-awareness, not a completed audit. Threat model + allowlist + CI cover the intent. |
 | Mainnet not published | Testnet-only; mainnet publish costs real SUI and is planned for Phase 6. |
 | DEEP fee path tested with zero-DEEP workaround | DeepBook testnet pool accepts the swap; the `pay_with_deep = true` path is exercised but with a zero-balance edge case. Documented in code. |
