@@ -8,6 +8,9 @@
 export { conservativeRebalancer, CONSERVATIVE_REBALANCER_ID } from './conservative-rebalancer.js';
 export type { ConservativeRebalancerConfig } from './conservative-rebalancer.js';
 
+export { llmAdvisor, LLM_ADVISOR_ID } from './llm-advisor.js';
+export type { LlmAdvisorConfig, AdvisorRecommendation, AdviseFn } from './llm-advisor.js';
+
 export { balancedYield, BALANCED_YIELD_ID } from './balanced-yield.js';
 export type { BalancedYieldConfig } from './balanced-yield.js';
 

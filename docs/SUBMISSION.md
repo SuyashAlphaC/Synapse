@@ -33,6 +33,7 @@ place, not yet wired into a live demo flow (flagged honestly).
 | **Long-term memory** (persistent, verifiable) | **LIVE** | MemWal `recall`/`remember` every tick — [`memwal-bridge`](../sdk/packages/memwal-bridge/); DCA counters + EMA persist across ticks/restarts. Browser recall panel: [`memwal-recall-panel.tsx`](../web/dashboard/app/components/dashboard/memwal-recall-panel.tsx) · `b205e63` |
 | **Persistent data/files via Walrus** | **LIVE** | Markdown audit report uploaded to Walrus every tick — [`runtime.ts`](../sdk/packages/vault/src/runtime/runtime.ts); `ArtifactRef` on-chain — [`artifacts.move`](../move/synapse_core/sources/artifacts.move); browse + open raw blob in the Artifacts panel |
 | **Integrations/tooling for devs** | **LIVE** | LangGraph `SynapseStore` (`BaseStore` → MemWal/Walrus) — [`adapters/langgraph`](../sdk/packages/adapters/langgraph/) with 8 unit tests + runnable example + README · `d3077cd` |
+| **Functional AI agent** (LLM in the loop) | **CODE-COMPLETE** | `llm-advisor` strategy — Claude reasons over market + **recalled MemWal memory** to set the target weight; the audited rebalancer executes it within on-chain policy. Closes recall→reason→act→remember. [`llm-advisor.ts`](../sdk/packages/vault/src/strategies/llm-advisor.ts) · 8 unit tests · [`docs/AI-STRATEGY.md`](./AI-STRATEGY.md). Live run needs `ANTHROPIC_API_KEY` (operator-side) |
 
 ### Especially interested in
 

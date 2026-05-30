@@ -45,6 +45,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.100.1",
     "@mysten/deepbook-v3": "^1.3.6",
     "@mysten/sui": "^2.16.2",
     "@mysten/walrus": "^1.1.7",

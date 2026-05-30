@@ -1,6 +1,7 @@
 import { getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
 import type { Strategy } from '../types.js';
 import { conservativeRebalancer } from '../strategies/conservative-rebalancer.js';
+import { llmAdvisor } from '../strategies/llm-advisor.js';
 import {
   DEEPBOOK_PACKAGE_ID_TESTNET,
   SUI_TYPE_TAG_TESTNET,
@@ -211,16 +212,31 @@ export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig
     walrusNetwork,
     ...(sessionKeyPath ? { sessionKeyPath } : {}),
     ...(sessionKeyEnv ? { sessionKeyEnv } : {}),
-    strategy: conservativeRebalancer({
-      baseTypeTag: SUI_TYPE_TAG_TESTNET,
-      baseSymbol: 'SUI',
-      quoteTypeTag: USDC_TYPE_TAG_TESTNET,
-      quoteSymbol: 'DBUSDC',
-      targetBaseWeight: numberFromEnv(env.SYNAPSE_TARGET_BASE_WEIGHT, 0.5),
-      driftThreshold: numberFromEnv(env.SYNAPSE_DRIFT_THRESHOLD, 0.05),
-      poolId: env.SYNAPSE_DEEPBOOK_POOL_ID ?? SUI_USDC_POOL_ID_TESTNET,
-      slippageTolerance: numberFromEnv(env.SYNAPSE_SLIPPAGE_TOLERANCE, 0.005),
-    }),
+    strategy:
+      (env.SYNAPSE_STRATEGY ?? '').trim() === 'llm-advisor'
+        ? // AI-driven: Claude reasons over market + recalled MemWal memory to set
+          // the target weight; the rebalancer executes it within on-chain policy.
+          // Needs ANTHROPIC_API_KEY; degrades to a transparent noop without it.
+          llmAdvisor({
+            baseTypeTag: SUI_TYPE_TAG_TESTNET,
+            baseSymbol: 'SUI',
+            quoteTypeTag: USDC_TYPE_TAG_TESTNET,
+            quoteSymbol: 'DBUSDC',
+            poolId: env.SYNAPSE_DEEPBOOK_POOL_ID ?? SUI_USDC_POOL_ID_TESTNET,
+            slippageTolerance: numberFromEnv(env.SYNAPSE_SLIPPAGE_TOLERANCE, 0.005),
+            driftThreshold: numberFromEnv(env.SYNAPSE_DRIFT_THRESHOLD, 0.05),
+            ...(env.SYNAPSE_LLM_MODEL ? { model: env.SYNAPSE_LLM_MODEL } : {}),
+          })
+        : conservativeRebalancer({
+            baseTypeTag: SUI_TYPE_TAG_TESTNET,
+            baseSymbol: 'SUI',
+            quoteTypeTag: USDC_TYPE_TAG_TESTNET,
+            quoteSymbol: 'DBUSDC',
+            targetBaseWeight: numberFromEnv(env.SYNAPSE_TARGET_BASE_WEIGHT, 0.5),
+            driftThreshold: numberFromEnv(env.SYNAPSE_DRIFT_THRESHOLD, 0.05),
+            poolId: env.SYNAPSE_DEEPBOOK_POOL_ID ?? SUI_USDC_POOL_ID_TESTNET,
+            slippageTolerance: numberFromEnv(env.SYNAPSE_SLIPPAGE_TOLERANCE, 0.005),
+          }),
     ...(memwal ? { memwal } : {}),
     ...(env.SYNAPSE_TICK_INTERVAL_MS
       ? { tickIntervalMs: Number(env.SYNAPSE_TICK_INTERVAL_MS) }
