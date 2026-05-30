@@ -21,17 +21,24 @@ The browser in-tab runtime never sets it, so it always uploads plaintext.
 - Dashboard: the Artifacts panel shows a **Decrypt** action for sealed
   artifacts (pick `.key` → fetch ciphertext → decrypt → show plaintext).
 
-## What you do (one publish + live verify)
+## Published
 
-1. **Publish the policy package** (fresh v1 — Seal requires a first-version
-   namespace):
+`synapse_seal` is published on **testnet** (first-version, module `policy`):
 
-   ```bash
-   cd move/synapse_seal
-   sui client publish --gas-budget 100000000
-   ```
+```
+0x14a1cbc600affc135510237ad779f19f924dfb2a6ee068b9b85f2c59d69bc91a
+```
 
-   Copy the new package ID from the output (the `Published Objects` entry).
+This is the default `SYNAPSE_SEAL_PACKAGE_ID` /
+`NEXT_PUBLIC_SYNAPSE_SEAL_PACKAGE_ID`. To re-publish (fresh v1 — Seal requires
+a first-version namespace):
+
+```bash
+cd move/synapse_seal
+sui client publish --gas-budget 100000000
+```
+
+Copy the new package ID from the `Published Objects` entry.
 
 2. **Configure both sides** with that package ID:
 

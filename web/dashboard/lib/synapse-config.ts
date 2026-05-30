@@ -45,7 +45,9 @@ export const SYNAPSE_UPGRADE_CAP =
  * set `NEXT_PUBLIC_SYNAPSE_SEAL_PACKAGE_ID`. When empty, the decrypt UI shows
  * a "Seal not configured" hint instead of attempting decryption.
  */
-export const SYNAPSE_SEAL_PACKAGE_ID = process.env['NEXT_PUBLIC_SYNAPSE_SEAL_PACKAGE_ID'] ?? '';
+export const SYNAPSE_SEAL_PACKAGE_ID =
+  process.env['NEXT_PUBLIC_SYNAPSE_SEAL_PACKAGE_ID'] ??
+  '0x14a1cbc600affc135510237ad779f19f924dfb2a6ee068b9b85f2c59d69bc91a';
 
 /**
  * Every package version we've ever deployed for `synapse_core`, newest
