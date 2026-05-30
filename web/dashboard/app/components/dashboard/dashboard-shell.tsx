@@ -12,6 +12,7 @@ import { PolicyPanel } from './policy-panel';
 import { RunTickButton } from './run-tick-button';
 import { SessionKeyPanel } from './session-key-panel';
 import { DepositPanel } from './deposit-panel';
+import { FundSessionPanel } from './fund-session-panel';
 import { RuntimeHealthPanel } from './runtime-health-panel';
 import dynamic from 'next/dynamic';
 
@@ -202,6 +203,9 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
           />
           <PolicyPanel {...(live ? { live } : {})} />
           {liveVault && <DepositPanel vaultId={liveVault.agentId} />}
+          {live && live.identity.sessionAddr.length > 0 && (
+            <FundSessionPanel sessionAddr={live.identity.sessionAddr} />
+          )}
           {liveVault && (
             <SessionKeyPanel
               vaultId={liveVault.agentId}
