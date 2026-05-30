@@ -149,12 +149,52 @@ export function MintWizard() {
       });
       return result.accountId;
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // The MemWal contract allows only one account per address (abort code
+      // 3 in account::create_account). If this wallet already has one, that's
+      // not an error — look it up and reuse it so the field fills either way.
+      if (/abort code: 3|create_account/.test(msg)) {
+        const existing = await findExistingMemwalAccount(account.address);
+        if (existing) {
+          toast.push({
+            variant: 'success',
+            title: 'Using your existing MemWal account',
+            body: `This wallet already has one — reusing ${shortenHash(existing)}.`,
+            durationMs: 8000,
+          });
+          return existing;
+        }
+      }
       toast.push({
         variant: 'danger',
         title: 'MemWal account creation failed',
-        body: (err instanceof Error ? err.message : String(err)).slice(0, 220),
+        body: msg.slice(0, 220),
         durationMs: 10_000,
       });
+      return null;
+    }
+  }
+
+  /**
+   * Find the MemWalAccount this wallet created (the contract allows only one
+   * per address). The account object is SHARED, so it isn't in getOwnedObjects
+   * — we find it via the `AccountCreated { account_id, owner }` event filtered
+   * to this owner. Returns the account id, or null if none.
+   */
+  async function findExistingMemwalAccount(owner: string): Promise<string | null> {
+    try {
+      const res = await suiClient.queryEvents({
+        query: { MoveModule: { package: MEMWAL_PACKAGE_ID, module: 'account' } },
+        limit: 200,
+        order: 'descending',
+      });
+      for (const ev of res.data) {
+        if (!ev.type.endsWith('::account::AccountCreated')) continue;
+        const pj = ev.parsedJson as { account_id?: string; owner?: string } | undefined;
+        if (pj?.owner === owner && pj.account_id) return pj.account_id;
+      }
+      return null;
+    } catch {
       return null;
     }
   }
