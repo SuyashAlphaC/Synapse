@@ -62,3 +62,8 @@ agent-data/
 
 # Synapse — local session keys for live-tick vaults
 scripts/live-vaults.json
+
+# local demo helper (hardcoded key path)
+run-cross-read.sh
+# sui publish artifact
+move/**/Published.toml
