@@ -32,19 +32,33 @@ than failing the tick.
 
 ## Run it
 
-Set the runtime-configured strategy to the advisor and provide a key:
+The advisor is a normal marketplace strategy — hired by its on-chain
+`strategy_id`, exactly like the deterministic ones. There is no special env
+switch.
 
-```bash
-export SYNAPSE_STRATEGY=llm-advisor
-export ANTHROPIC_API_KEY=sk-ant-...
-export SYNAPSE_LLM_MODEL=claude-opus-4-8   # optional; default claude-opus-4-8
-# plus the usual SYNAPSE_PACKAGE_ID / SYNAPSE_AGENT_ID / session key
-node sdk/packages/vault/dist/runtime/bin/run.js --once
-```
+1. **Publish it on-chain** (`strategy_registry::publish` / the publish UI) →
+   appears in the marketplace, yields a `strategy_id`.
+2. **Map that `strategy_id` → `llm-advisor`** so the runtime resolver builds it:
+   add the id to `KNOWN_STRATEGIES` (like the seeded strategies) or, without a
+   code change, set
+   `SYNAPSE_STRATEGY_REGISTRY_JSON='{"0x<strategyId>":"llm-advisor"}'`.
+3. **Mint a vault that hires that strategy**, and run a server-side runtime with
+   a key:
+
+   ```bash
+   export ANTHROPIC_API_KEY=sk-ant-...
+   # plus the usual SYNAPSE_PACKAGE_ID / SYNAPSE_AGENT_ID / session key
+   node sdk/packages/vault/dist/runtime/bin/run.js --once
+   ```
 
 The tick will: recall memory → call Claude (adaptive thinking, structured JSON
 output) → set the target weight → execute a policy-gated DeepBook swap (or hold)
 → persist the AI rationale to MemWal for the next tick to recall.
+
+> **Server-side only.** The in-browser in-tab runtime can't run the advisor —
+> `@anthropic-ai/sdk` is excluded from the browser bundle. A browser tick of an
+> llm-advisor vault degrades to a transparent noop; run it headless (Docker /
+> CLI) with an API key.
 
 ## Implementation
 
