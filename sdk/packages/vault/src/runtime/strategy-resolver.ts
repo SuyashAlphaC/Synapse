@@ -19,9 +19,11 @@ import {
   AGGRESSIVE_MOMENTUM_ID,
   BALANCED_YIELD_ID,
   CONSERVATIVE_REBALANCER_ID,
+  LLM_ADVISOR_ID,
   aggressiveMomentum,
   balancedYield,
   conservativeRebalancer,
+  llmAdvisor,
 } from '../strategies/index.js';
 import {
   SUI_TYPE_TAG_TESTNET,
@@ -39,7 +41,8 @@ import {
 export type StrategySlug =
   | typeof CONSERVATIVE_REBALANCER_ID
   | typeof BALANCED_YIELD_ID
-  | typeof AGGRESSIVE_MOMENTUM_ID;
+  | typeof AGGRESSIVE_MOMENTUM_ID
+  | typeof LLM_ADVISOR_ID;
 
 /**
  * Canonical on-chain `Strategy` object IDs from the testnet seed. Used as
@@ -75,7 +78,8 @@ function parseEnvOverride(raw: string | undefined): Record<string, StrategySlug>
     if (
       v === CONSERVATIVE_REBALANCER_ID ||
       v === BALANCED_YIELD_ID ||
-      v === AGGRESSIVE_MOMENTUM_ID
+      v === AGGRESSIVE_MOMENTUM_ID ||
+      v === LLM_ADVISOR_ID
     ) {
       out[k] = v;
     } else {
@@ -137,6 +141,19 @@ export function buildStrategy(
         maxConfBps: 75,
         slippageTolerance: 0.01,
         maxPositionFraction: 0.5,
+      });
+    case LLM_ADVISOR_ID:
+      // AI-driven: needs ANTHROPIC_API_KEY on the runtime; degrades to a
+      // transparent noop without it. Runs server-side only — the in-browser
+      // runtime excludes @anthropic-ai/sdk from its bundle.
+      return llmAdvisor({
+        baseTypeTag: commonPair.baseTypeTag,
+        baseSymbol: commonPair.baseSymbol,
+        quoteTypeTag: commonPair.quoteTypeTag,
+        quoteSymbol: commonPair.quoteSymbol,
+        poolId: commonPair.poolId,
+        slippageTolerance: 0.005,
+        driftThreshold: 0.05,
       });
   }
 }
