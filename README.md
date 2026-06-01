@@ -1,299 +1,265 @@
-# Synapse Vault
+<p align="center">
+  <img src="assets/logo.png" alt="Synapse Vault" width="150" />
+</p>
 
-> **Autonomous AI Treasury Management on Sui.**
-> Hire an AI portfolio manager. Pay it in basis points. Revoke it in one click.
+<h1 align="center">Synapse Vault</h1>
 
-**Sui Overflow 2026 Submission** · Walrus Specialized Track (Headline Partner)
-**Building Period:** May 7 – June 21, 2026 · **Submission Deadline:** June 21, 2026
-**Mainnet Target:** August 20, 2026 (captures full $35K prize upfront)
+<p align="center"><b>Autonomous AI treasury management on Sui — powered by Walrus.</b></p>
+<p align="center"><i>Hire an AI portfolio manager. Pay it in basis points. Revoke it in one click.<br>Every decision is remembered, audited, and provable — on Walrus.</i></p>
+
+<p align="center">
+  <a href="https://synapse-kappa-sable.vercel.app">Live demo</a> ·
+  <a href="https://github.com/SuyashAlphaC/Synapse">Code</a> ·
+  Sui Overflow 2026 · Walrus Track
+</p>
 
 ---
 
-## The Product
+Built for **Sui Overflow 2026 — Walrus Track**.
 
-**Synapse Vault** is an autonomous AI treasury manager that DAOs and tokenized RWA fund managers can hire today. It rebalances portfolios, executes trades on DeepBookV3, and produces a cryptographically auditable record of every decision — all within hard policy bounds the human owner sets at mint time.
+- **Code:** this repo (Move + TypeScript SDK + Next.js dashboard)
+- **Marketing site (Walrus Sites, testnet):** Site object `0x55c33a39757a4487ca8cebdaffd5b7b9f9ba9601456a82ef5f031c689ae0001a`
 
-| | |
+---
+
+## 1. What it is
+
+It's 2026 and AI agents run everywhere — but the moment you let one **touch money**, every option is broken:
+
+| What you can do today | Why it breaks |
 |---|---|
-| **Customer** | DAOs with $10M+ treasuries · Tokenized RWA fund managers · Crypto-native asset managers |
-| **Revenue model** | **1% AUM** annually (industry standard) + **0.5% performance fee** on alpha vs benchmark |
-| **Realistic Y1 ARR** | $50K – $500K from 3–5 early design partners |
-| **TAM** | $30B+ (DAO treasuries $5B+ · Tokenized RWA $24B+ · Crypto-native funds $2B+) |
-| **Sales cycle** | 2–6 weeks (crypto-native, not enterprise) |
+| Give the AI a hot wallet | One bad prompt drains it. No safety net. |
+| Human approves every tx | Kills the point of automation. |
+| Centralized custodian | Back to trusting one company. |
+| Multisig the AI | Slow, fragile, needs coordinated signers. |
 
-### Why Synapse Vault Exists
+**There is no infrastructure layer for giving AI agents *controlled* financial autonomy.** Synapse Vault is that layer.
 
-Every DAO, every tokenized fund manager, every crypto-native treasurer is asking the same question in 2026: *"Can we hire an AI to manage this?"*
+### The core idea (three sentences)
 
-The answer until now has been *no*, for four reasons:
+1. **The smart contract holds the money** — not the AI, not us, not anyone.
+2. **The AI only proposes** trades through a Sui transaction; the Move VM **enforces** hard rules — max spend per epoch, allowlisted contracts only, expiry, instantly revocable.
+3. **The owner holds one key — the kill switch.** One signature ends the AI's authority forever.
 
-1. **No agent-level audit trail** — compliance can't sign off without one.
-2. **No spending controls** — CFOs can't approve an AI that holds unbounded keys.
-3. **No atomic kill switch** — CISOs can't deploy without an instant off-button.
-4. **Custodial AI agents** (Coinbase AgentKit, Crossmint) push the policy boundary off-chain, where it can't be cryptographically verified.
+The AI can be the smartest model on earth or a buggy weekend hack. The blockchain rejects any transaction that breaks the rules the owner set at mint.
 
-Synapse Vault is the first AI treasury manager that solves all four. Underneath, it's powered by **Synapse Core** — the identity, policy, and coordination substrate we built because no one else had.
+### Why Walrus
 
----
+A treasury agent is only trustworthy if you can **see what it did and why, across time**. That requires durable, verifiable, portable memory — not a database one company controls. Synapse uses Walrus as the **verifiable data platform for the agent**:
 
-## Two-Layer Architecture
-
-### Layer 1: Synapse Vault (the product)
-
-The user-facing autonomous AI treasury manager. DAOs and fund managers hire a Vault, fund it, and let it rebalance their portfolio according to a strategy they pick (or write themselves). Every decision is recorded as a Walrus artifact. Every action passes through hard on-chain policy gates.
-
-### Layer 2: Synapse Core (the substrate)
-
-The composable identity + policy + coordination layer for ANY autonomous AI agent on Sui. Synapse Vault is the canonical reference implementation, but any other team can build their own vertical agent product on top of `@synapse-core/client`:
-
-| What Synapse Core Provides | Examples of Apps That Could Be Built |
-|---|---|
-| `AgentIdentity` on-chain object with policy enforcement | Autonomous trading bots (retail or pro) |
-| MemWal-backed long-term memory | AI research assistants with audit |
-| Walrus artifact registry | AI content studios with provenance |
-| Policy-bounded wallet (allowlist + spend caps + expiry) | Autonomous SaaS billing agents |
-| One-PTB revocation cascade | DAO compliance officers' kill-switch tooling |
-| LangGraph framework adapter | Any agent workflow that needs Sui-native identity |
-
-**This is the pitch arithmetic:** Synapse Vault has paying customers today (1% AUM revenue). Synapse Core captures the entire downstream ecosystem of vertical AI agent apps that will be built on Sui in the next 24 months.
+- **MemWal** — the agent's long-term memory (recall past decisions every tick).
+- **Walrus blobs** — every tick's full rationale stored as a tamper-evident audit artifact.
+- **Seal** — private artifacts encrypted, decryptable only by the vault's key.
+- **Walrus Sites** — the product's front door, served from Walrus itself.
 
 ---
 
-## Track & Prizes
+## 2. Walrus Track — requirement coverage
 
-Synapse Vault is submitted to the **Walrus Specialized Track** (Headline Partner).
+Mapped 1:1 to the official problem statement. **LIVE** = exercised on testnet (tx / round-trip cited). **CODE-COMPLETE** = built + typecheck/test-verified; final live run is operator-side (needs a funded wallet or API key).
 
-| Place | Prize |
-|---|---|
-| **1st** | **$35,000** |
-| 2nd | $15,000 |
-| 3rd | $7,500 |
-| 4th | $5,000 |
+### Core deliverables
 
-**Award structure:** 50/50 split unless mainnet by August 27. We commit to mainnet by August 20 to capture the full 100% upfront.
-
----
-
-## How Synapse Vault Works (End-to-End)
-
-### 1. Mint a Vault
-
-A DAO multisig (or any human via zkLogin) mints a Vault by submitting a single PTB:
-
-```
-1. zkLogin proves Google identity → RootIdentity
-2. Generate ephemeral agent session keypair (Ed25519)
-3. Provision MemWal delegate key for the Vault's strategy memory
-4. PTB chain:
-   - synapse_core::agent::new(...)       ← AgentIdentity
-   - synapse_core::agent::fund<USDC>      ← seed treasury
-   - synapse_core::agent::fund<SUI>       ← seed treasury
-   - synapse_core::agent::attach_messaging  ← Sui Stack Messaging channels
-   - synapse_core::agent::share           ← shared object on-chain
-```
-
-The Vault is now live, with policy hard-coded on-chain:
-- Spend cap per epoch (e.g., 10% of AUM per 24h)
-- Contract allowlist (DeepBookV3 SUI/USDC pool, OpenAI proxy)
-- Expiry (e.g., 90 days; renewable by the owner)
-
-### 2. Vault Runs (Autonomous Loop)
-
-The Vault's runtime — a LangGraph-powered agent backed by Claude Opus 4.7 — executes continuously:
-
-```
-loop (every market interval):
-    a. recall(MemWal): "What's our current strategy state? Past rebalance decisions?"
-    b. fetch(DeepBookV3): current SUI/USDC orderbook + spread
-    c. fetch(oracle): current prices + portfolio drift
-    d. reason: should we rebalance? what trades?
-    e. if yes:
-        i.   generate audit report (markdown)
-        ii.  publish report to Walrus via artifacts::publish
-        iii. execute swaps via wallet::spend → DeepBookV3::swap
-        iv.  log_action via attestation::log_action
-        v.   remember(MemWal): "Rebalanced X→Y on date Z because reason W"
-```
-
-Every step is gated by Synapse Core's policy enforcement. No off-policy action can execute, even if the LangGraph runtime is compromised.
-
-### 3. Owner Reviews Audit Trail
-
-The DAO logs into the Vault dashboard:
-
-- **Holdings view** — current treasury allocation, live PnL
-- **Audit timeline** — every rebalance, every swap, every memory write, ordered by tx digest
-- **Decision rationale** — each rebalance has a Walrus-stored markdown report explaining *why* the agent did what it did
-- **Compliance export** — one-click PDF for board / auditor / regulator
-- **Fee accrual** — 1% AUM streaming continuously into the protocol fee account
-
-### 4. Owner Revokes (when needed)
-
-One PTB cascade:
-- Flips `AgentIdentity.revoked = true` → all session-key actions abort
-- Emits `AgentRevokedEvent` → the authoritative kill signal indexers + the off-chain runtime observe (the on-chain revoke already aborts every session-key action the instant it lands; automated MemWal delegate invalidation + Walrus eviction off this event are on the roadmap, not yet wired)
-- Treasury can be drained back to owner via `wallet::drain<T>`
-
-Total time from "agent went rogue" to "agent is dead and all funds reclaimed": **one transaction**. No multi-sig wait. No vendor approval. No off-chain coordination.
-
----
-
-## Why Synapse Vault Wins on Real-World Application (50% of judging)
-
-| Question | Answer |
-|---|---|
-| **Who pays for this?** | DAOs and tokenized RWA fund managers, in stablecoins, via a 1% AUM fee accrued on-chain. Identical economics to Yearn Vaults and BlackRock funds. |
-| **How much?** | At 1% AUM, a single $10M DAO treasury client = $100K ARR. Five clients = $500K ARR. Top-50-DAO penetration alone = $50M+ ARR ceiling. |
-| **What's the moat?** | Synapse Core's policy primitives. No centralized AI treasury service (Almanak, etc.) can match cryptographic kill-switch + audit + spending controls — those properties only exist on Sui. |
-| **What's the sales cycle?** | 2–6 weeks crypto-native (DAOs governance vote → integration). Vs 18 months for enterprise asset managers. |
-| **What's the regulatory story?** | Compliance officers reject custodial AI; they accept cryptographic policy enforcement. Synapse is the only architecture they'll sign off on. |
-| **What's the path to mainnet?** | August 20, 2026 — well before the August 27 winners announcement deadline that captures the full prize. |
-| **What's the long-term?** | Synapse Vault is the flagship vertical; Synapse Core captures the platform play across every other AI-agent vertical built on Sui in the next 24 months. |
-
----
-
-## Walrus Track Requirements — Twelve-for-Twelve
-
-Synapse Vault is the canonical Walrus track submission: every requirement is hit by something the Vault product actually does in production.
-
-| # | Requirement | How Synapse Vault Implements It |
+| Track ask | Status | How Synapse does it |
 |---|---|---|
-| 1 | Long-term memory via MemWal | Vault stores rolling strategy memory, past rebalance rationale, market context — recalled at every decision step |
-| 2 | Direct Walrus file access | Every rebalance generates a markdown audit report stored directly on Walrus + registered as a Synapse `ArtifactRef` |
-| 3 | Integrations/tooling for adoption | LangGraph adapter — any other LangGraph-built agent can plug into Synapse Core |
-| 4 | Long-running workflows | Vault runs autonomously across sessions; memory persists; resumes on agent restart |
-| 5 | Multi-agent coordination | Multiple Vault strategies (conservative, yield, market-making) share a MemWal namespace and pass artifacts via Sui Stack Messaging |
-| 6 | Artifact-driven workflows | Markdown audit reports are real files generated by the agent and consumed by the dashboard |
-| 7 | Adapters for existing frameworks | LangGraph implementation lets any LangGraph workflow become a Vault-managed strategy |
-| 8 | Workflow orchestration (memory + messaging + execution) | All three integrated in one PTB: spend → swap → memory write → message peer |
-| 9 | Cross-tool/cross-agent memory sharing | Strategy agents share namespace; conservative and aggressive strategies see each other's decisions |
-| 10 | Inspection/debug dev tool | Dashboard's Audit Timeline + Memory panels — every decision with on-chain digest, recall trace, and live Walrus rationale fetch |
-| 11 | Working systems, not just demos | LangGraph adapter + Vault dashboard are real software, runnable, contributable |
-| 12 | Seal for privacy | Strategy parameters Seal-encrypted; only the Vault delegate key can decrypt |
+| **Long-term, verifiable memory** | **LIVE** | MemWal `recall`/`remember` every tick (`sdk/packages/memwal-bridge`). Strategy counters/EMA/decisions persist across ticks and process restarts. Browse + semantically query a vault's memory in the **MemWal recall panel** (dashboard). |
+| **Persistent data/files via Walrus** | **LIVE** | A markdown audit report is uploaded to Walrus **every tick**; an on-chain `ArtifactRef` (`artifacts.move`) links the blob + sha256. Browse and open the raw blob from the **Artifacts panel**. |
+| **Integrations/tooling for devs** | **LIVE** | `@synapse-core/adapter-langgraph` — a LangGraph `BaseStore` backed by MemWal/Walrus. Drop it into any LangGraph agent for Walrus-durable memory. 8 unit tests + runnable example + README. |
+
+### Especially-interested-in
+
+| Track ask | Status | How |
+|---|---|---|
+| **Long-running stateful workflow** | **LIVE** | The trading agent ticks 24/7; the headless runtime resumes on restart with state from MemWal. |
+| **Multi-agent coordination** | **LIVE** | Two vaults sharing a MemWal namespace; a reader recalls a peer's memory and attests it on-chain. CLI `synapse-cross-agent-read`. Verified tx `AQQZhQRQZ8vK1Y7zPrxaGT7MS9cRkVAoXLYHvSSEDzRm` (`CrossAgentReadEvent`). |
+| **Artifact-driven workflows** | **LIVE** | Agent generates audit reports → stores on Walrus → a peer **reuses** them via cross-agent recall. |
+
+### Tooling axis + named references
+
+| Ask / reference | Status | How |
+|---|---|---|
+| Add memory to existing agent frameworks | **LIVE** | LangGraph adapter (above). |
+| Cross-tool / cross-agent memory sharing | **LIVE** | Shared MemWal namespace, read + write, attested on-chain. |
+| Inspect / debug agent memory on Walrus | **LIVE** | Dashboard recall panel (semantic query → SEAL-decrypted hits → Walrus blob links) + Artifacts panel + on-chain audit timeline. |
+| **Seal** | **LIVE** | `synapse_seal` policy package published at `0x14a1cbc600affc135510237ad779f19f924dfb2a6ee068b9b85f2c59d69bc91a`. Full encrypt → `seal_approve` → decrypt round-trip verified against the live testnet key servers. |
+| **Walrus Sites** | **LIVE** | Marketing site published to Walrus Sites — Site object `0x55c33a39…001a` (`web/site/`). |
+| **Sui Stack Messaging** | **CODE-COMPLETE** | Real `@mysten/messaging` send (Walrus-stored, Seal-encrypted) + on-chain `messaging_bridge::record_send/record_receive` correlator (`examples/messaging-demo`). Isolated package — the SDK pins sui 1.x, the main repo is on sui 2.x. Typecheck-verified; live channel creation is operator-side. |
+| **Functional AI agent (LLM in the loop)** | **LIVE (Walrus-loaded)** | The `llm-advisor` strategy: Claude reasons over the live market **and the vault's recalled MemWal memory** to set the target allocation; the audited rebalancer executes it within on-chain policy. Closes **recall → reason → act → remember**. Published as a Walrus-loaded marketplace strategy and dispatched on testnet (`dispatching to Walrus-loaded marketplace strategy`). Needs an Anthropic API key on the runtime; degrades to a transparent noop without one. |
+| Cryptographic revocation cascade | **LIVE** | On-chain revoke + owner-signed MemWal delegate removal. |
 
 ---
 
-## Synapse Core — The Substrate Underneath
+## 3. The moat (the one page that matters)
 
-For developers and the broader Walrus ecosystem, Synapse Core is the open-source primitive everyone else can build on. Already complete and verified.
+**The smart contract is the only thing that can move money.** The AI proposes; the Move VM approves or aborts — atomically, every spend:
 
-### Move Package (7 modules, 10/10 tests passing)
+```move
+public(package) fun assert_can_act(identity: &AgentIdentity, ctx: &TxContext) {
+    assert!(!identity.revoked, ERevoked);                           // not killed
+    assert!(ctx.sender() == identity.session_addr, ENotAuthorized); // signed by agent key
+    assert!(ctx.epoch() < identity.expiry_epoch, EExpired);         // before expiry
+}
+public(package) fun assert_package_allowed(identity: &AgentIdentity, pkg: address) {
+    assert!(identity.approved_packages.contains(&pkg), ENotWhitelisted);
+}
+public(package) fun record_spend(identity: &mut AgentIdentity, amount: u64) {
+    assert!(identity.spent_this_epoch + amount <= identity.spend_per_epoch, EOverBudget);
+}
+```
+
+A compromised runtime can't bypass these. A jailbroken LLM can't. The protocol authors can't. The chain literally aborts the transaction. Everything else — the marketplace, zkLogin onboarding, the dashboard, the Walrus audit trail — exists to demonstrate this one claim.
+
+---
+
+## 4. Architecture
+
+### Move — `move/synapse_core` (Sui Move 2024)
 
 | Module | Responsibility |
 |---|---|
-| `agent.move` | `AgentIdentity` spine: identity, treasury, MemWal bridge, artifacts, messaging, revocation |
-| `wallet.move` | `spend<T>` / `withdraw<T>` / `drain<T>` with four-layer policy gate |
-| `artifacts.move` | Walrus blob registry as dynamic fields on AgentIdentity |
-| `coordination.move` | Multi-agent shared-namespace capability gates |
-| `messaging_bridge.move` | Sui Stack Messaging audit correlator |
-| `attestation.move` | Unified action log across all subsystems |
-| `deepbook_adapter.move` | DeepBookV3 swap policy gate + audit (composable, not wrapping) |
+| `agent.move` | `AgentIdentity` spine: identity, treasury, MemWal bridge, messaging channels, artifacts, revocation, the policy gates above. |
+| `wallet.move` | `spend<T>` / `withdraw<T>` / `drain<T>` behind the four-layer policy gate. |
+| `strategy_registry.move` | The marketplace: `Strategy` shared objects, versioning, royalty rules, lifetime reputation; `StrategistCap` gates governance; `record_tick_performance` + `pay_strategist_royalty`. |
+| `artifacts.move` | Walrus blob registry as dynamic fields on the AgentIdentity (`ArtifactRef`: blob id + sha256 + seal flag). |
+| `coordination.move` | Multi-agent shared-namespace gates (`record_cross_agent_read`, `record_artifact_share`). |
+| `messaging_bridge.move` | Sui Stack Messaging audit correlator (`record_send` / `record_receive`). |
+| `attestation.move` | Unified action log across every subsystem. |
+| `deepbook_adapter.move` | DeepBookV3 swap policy gate + audit — composable, not wrapping. |
 
-### Client SDK (`@synapse-core/client`)
+Plus `move/synapse_seal` — a standalone Seal access-policy package (`policy::seal_approve`, identity-prefix access).
 
-Full TypeScript surface against real upstream packages (`@mysten/sui` 2.16.2, `@mysten/walrus` 1.1.7, `@mysten/seal` 1.1.3, `@mysten-incubation/memwal` 0.0.3). PTB builders for every Move function. Walrus upload helpers. Seal encryption. Session-key management. zkLogin flow. All workspaces type-check clean in strict mode.
+### TypeScript SDK — `sdk/packages`
 
-### Design System (`@synapse-core/design-tokens`)
-
-Sui Overflow 2026 theme captured as code: cream + ink palette, vibrant accents, blueprint grid motif, Inter Display typography, sharp flat-shadow buttons. Tailwind preset + CSS custom properties + TypeScript tokens.
-
----
-
-## Updated Build Plan
-
-| Week | Deliverable |
+| Package | What |
 |---|---|
-| **Week 1 (May 13–19)** | ✅ `@synapse-core/memwal-bridge` real implementation · LangGraph adapter · Vault runtime loop · DeepBookV3 swap composition · Walrus artifact reports |
-| **Week 2 (May 20–26)** | ✅ Runtime hardening (headless secrets seam · redacting logger · Walrus code-hash allowlist · fail-safe liveness · webhook alerts · CI · self-hosting docs) · funded-vault testnet rehearsal |
-| **Week 3 (May 27–Jun 2)** | ✅ Vault Next.js dashboard (mint flow, holdings, audit timeline, revoke) · Indexer with Vault GraphQL views |
-| **Week 4 (Jun 3–9)** | ✅ Landing site with pricing calculator (deployed to Walrus Sites — `0x55c33a…001a`) · Demo video script and rehearsals |
-| **Week 5 (Jun 10–16)** | Demo video recording · Threat model finalization · Final submission package |
-| **Buffer (Jun 17–21)** | Bug fixes · Submission |
-| **Phase 5 (Jul 8–20, if shortlisted)** | Live Demo Day pitch prep |
-| **Phase 6 (Jul 22–Aug 20)** | Security review · Mainnet deployment (captures full 100% prize) |
+| `client` | Sui PTB builders (agent, wallet, artifacts, zkLogin) + Seal wrapper + Walrus upload. |
+| `vault` | The runtime: strategy engine, rebalance executor, audit-report generator, MemWal recall/remember, Walrus publisher, headless `bin/run.ts`, secrets provider, fail-safe tick loop. |
+| `memwal-bridge` | Synapse-aware wrapper over MemWal (`recall`/`remember`, namespace-keyed). |
+| `indexer` | Event indexer (timeline + artifacts). |
+| `adapters/langgraph` | LangGraph `SynapseStore` (Walrus-durable agent memory). |
 
-### Scope Trade-offs
+### Dashboard — `web/dashboard` (Next.js)
 
-- **Drop**: Claude Agent SDK + Eliza adapters (post-hackathon). Only LangGraph for v1 since that's what Vault uses internally.
-- **Drop**: standalone Memory Inspector. The Vault dashboard's Audit Timeline + Memory panel + Runtime Health cover the same use cases for the canonical product.
-- **Add**: Vault product UI replaces generic dashboard. Real revenue-model landing page + pricing calculator. Real DeepBookV3 swap loop on testnet. Production-hardened headless runtime (see [`docs/self-hosting.md`](docs/self-hosting.md)).
+Mint wizard (zkLogin or wallet), marketplace with real backtest curves, per-vault dashboard (holdings, NAV, policy, deposit, fund-session-gas, audit timeline, **MemWal recall panel**, **Artifacts panel with Seal decrypt**, in-browser runtime, danger zone with revoke cascade).
 
----
+### The runtime tick (recall → reason → act → remember)
 
-## The Demo (≤5 min)
-
-Single take, no cuts, real testnet transactions:
-
-1. **0:00–0:30** — Problem: $5B in DAO treasuries managed by tired multisig committees. Show real DAO governance forum screenshots asking for AI treasury management.
-2. **0:30–1:00** — Sign in with Google (zkLogin). Mint a Vault: $5K USDC + $5K SUI seed, conservative rebalancer strategy, 5% per-epoch spend cap, allowlist = DeepBookV3 SUI/USDC pool.
-3. **1:00–2:00** — Vault runs. LangGraph agent reads MemWal memory, fetches DeepBookV3 orderbook, generates rebalance plan, writes Walrus audit report. Watch the report appear in the dashboard live.
-4. **2:00–2:45** — Vault executes the rebalance: real PTB on testnet, real DeepBookV3 swap, single transaction. Sui explorer shows all effects atomically. Holdings update in dashboard.
-5. **2:45–3:30** — Audit timeline view. Every decision linked to its Walrus artifact. Open one to read the rebalance rationale. Compliance-ready.
-6. **3:30–4:00** — Pricing slide: "1% AUM, 0.5% performance fee." Calculator: $10M treasury → $100K ARR per client.
-7. **4:00–4:30** — Click "Revoke." One PTB cascade: Vault frozen, MemWal delegates invalidated, Walrus artifacts queued for eviction. Drain residuals back to owner.
-8. **4:30–5:00** — "Two layers: Synapse Vault (revenue-generating product) + Synapse Core (open-source substrate). Mainnet August 20."
+1. Load on-chain agent state + Pyth prices + DeepBook spreads.
+2. **Recall** the strategy's memory from MemWal.
+3. **Reason**: the strategy (deterministic, or the LLM advisor calling Claude over recalled memory) emits a decision.
+4. **Act**: one PTB — policy-gated DeepBook swap + `record_tick_performance` + royalty payout.
+5. Upload the rationale to **Walrus** + register the on-chain `ArtifactRef`.
+6. **Remember**: persist the decision outcome to MemWal for the next tick.
 
 ---
 
-## Run it yourself
+## 5. Real-world use cases
 
-The same `VaultRuntime` ships in the browser (demo only) and as a
-headless Node container (production). Closing the dashboard tab does
-**not** stop ticks once the headless runtime is hosted.
+- **DAO treasury management.** A DAO mints a vault, funds it, hires a conservative rebalancer or the AI advisor, sets a 5%/epoch spend cap, and keeps the revoke key in its multisig. The agent rebalances 24/7; every action is on-chain + on Walrus for the community to audit.
+- **Fund / SMA automation.** A quant desk runs many vaults (one per client mandate) off the same headless runtime image, each with its own policy envelope. Walrus gives every client a tamper-evident statement of what ran and why.
+- **Strategy marketplace for quants.** A strategist publishes a strategy on-chain, earns a royalty (paid atomically in the rebalance PTB) on every vault that hires it. Reputation (lifetime alpha, vault count) accrues on-chain.
+- **Agent memory infrastructure (dev tooling).** Any LangGraph / agent builder drops in `SynapseStore` to get Walrus-durable, verifiable, revocable memory — without the treasury product at all.
+- **Auditor / compliance.** A regulator verifies agent behavior from on-chain events + Walrus rationale blobs, with no access to the operator's systems.
 
-| Want to… | Read |
+---
+
+## 6. Go-to-market
+
+**Two layers, two motions.**
+
+| Layer | What | Motion | Revenue |
+|---|---|---|---|
+| **Synapse Vault** (product) | Hosted / self-hosted AI treasury manager. | Land DAOs and on-chain funds that already hold idle treasury and want automation without custody risk. | 1% AUM + 0.5% performance fee on realized alpha (both enforced on-chain). |
+| **Synapse Core** (open infra) | Move modules + SDK + adapters, open source. | Developer-led growth: anyone builds agents on the policy + Walrus-memory primitives; the LangGraph adapter is the wedge. | Ecosystem + marketplace royalties flowing through the protocol. |
+
+**Sequencing.** (1) Testnet + design-partner DAOs running real funds. (2) Seed an honest marketplace with external strategists. (3) Mainnet cutover (package + DEEP funding + a funded dry-run). (4) Managed hosting ("Synapse runs your agent") for DAOs that don't want to touch infra, alongside the self-host path.
+
+**Why we win.** Competitors put the agent behind a TEE or a trusted operator. Synapse puts the guarantees **on-chain** — the policy envelope is enforced by Move, the memory + audit trail live on Walrus (portable, not ours to censor), and the kill switch is one owner signature. The trust model is verifiable, not promised.
+
+---
+
+## 7. On-chain deployments (testnet)
+
+| Thing | ID |
 |---|---|
-| Run a vault locally (or via cron) for $0 | [`docs/self-hosting.md`](docs/self-hosting.md) §3–4 |
-| Deploy on Fly / Railway / Fargate | [`docs/self-hosting.md`](docs/self-hosting.md) §5–7 |
-| Understand the security model | [`docs/threat-model.md`](docs/threat-model.md) |
-| Reproduce the AWS Fargate cron stack | [`infrastructure/aws/README.md`](infrastructure/aws/README.md) |
-
-The runtime is hardened for self-hosting: pluggable `SecretsProvider`
-(env, Docker secret files, or AWS Secrets Manager), redacting logger
-(secrets can never reach stdout), webhook alerts on failure, Walrus
-strategy `code_hash` allowlist, transient-outage skip (Pyth/RPC blip
-≠ runtime defect), and graceful SIGTERM shutdown.
-
-CI (`.github/workflows/ci.yml`) gates every PR on typecheck, vault
-tests, secret-leak scan, gitignore-of-key-paths, and a runtime Docker
-build smoke.
+| `synapse_core` (latest, v3) | `0xd849b7b281cdc030daf4e2269a36e85e285edd44849b481eb6da49aed1978f01` |
+| `synapse_core` history (v2, v1) | `0x5da36d892956a4659415e245126a3964dd5aa6cf19ec2fdf6332bf828a4c58ed`, `0x7b3f59e42edbf2189df644e63162d0b9a2c2984755bab9d3e9557c4ddd4aa67c` |
+| `synapse_seal` (Seal policy) | `0x14a1cbc600affc135510237ad779f19f924dfb2a6ee068b9b85f2c59d69bc91a` |
+| Walrus Site (marketing) | `0x55c33a39757a4487ca8cebdaffd5b7b9f9ba9601456a82ef5f031c689ae0001a` |
 
 ---
 
-## Repository Structure
+## 8. Run it
+
+```bash
+# install (workspace)
+npm install
+
+# dashboard (local dev)
+cd web/dashboard && npm run dev          # http://localhost:3001
+
+# headless runtime — one tick (server-side; the autonomous loop drops --once)
+node sdk/packages/vault/dist/runtime/bin/run.js --once
+#   env: SYNAPSE_PACKAGE_ID, SYNAPSE_PACKAGE_HISTORY, SYNAPSE_AGENT_ID,
+#        SYNAPSE_SESSION_KEY_PATH (the vault .key), SYNAPSE_WALRUS_NETWORK=testnet
+#   for the AI advisor strategy: ANTHROPIC_API_KEY
+
+# headless runtime — Docker (secrets mounted as files)
+docker compose up --build
+
+# Move tests
+cd move/synapse_core && sui move test
+cd move/synapse_seal && sui move test
+
+# SDK tests
+npm --workspace @synapse-core/vault test             # 67 tests
+npm --workspace @synapse-core/adapter-langgraph test # 8 tests
+```
+
+---
+
+## 9. Verification
 
 ```
-synapse-core/                              monorepo root
-├── README.md                              this file
-├── handbook.txt                           Sui Overflow 2026 handbook reference
-├── move/synapse_core/                     ✅ 7 modules, 10/10 tests
-├── sdk/packages/
-│   ├── client/                            ✅ Sui + Walrus + Seal + zkLogin SDK
-│   ├── design-tokens/                     ✅ Overflow theme tokens
-│   ├── memwal-bridge/                     ✅ Real MemWal SDK bindings
-│   ├── vault/                             ✅ Strategy engine + executor + autonomous runtime
-│   ├── adapters/
-│   │   └── langgraph/                     ✅ LangGraph adapter
-│   └── indexer/                           ✅ GraphQL indexer
-├── web/
-│   ├── dashboard/                         ✅ Vault product UI
-│   └── site/                              ✅ Marketing + pricing calculator (deployed to Walrus Sites)
-└── docs/superpowers/plans/                ✅ Implementation plan
+move:                      synapse_core + synapse_seal — sui move test clean
+sdk/packages/vault:        67 tests (secrets, logger redaction, alerts,
+                           walrus-loader allowlist, runtime fail-safe, llm-advisor)
+adapters/langgraph:        8 tests (put/get/recall/tombstone/search/filter)
+dashboard:                 strict typecheck + production build (11/11 prerender)
+CI:                        GitHub Actions — typecheck + tests + secret-leak scan + Docker build
 ```
 
----
-
-## References
-
-- [Sui Overflow 2026](https://overflow.sui.io/) · [Participant Handbook](./handbook.txt)
-- [Walrus Docs](https://docs.wal.app/) · [Walrus Sites](https://docs.wal.app/docs/sites)
-- [MemWal Docs](https://docs.memwal.ai/) · [MemWal GitHub](https://github.com/MystenLabs/MemWal)
-- [Seal Docs](https://seal-docs.wal.app/)
-- [Sui Stack Messaging](https://github.com/MystenLabs/sui-stack-messaging)
-- [DeepBookV3 Docs](https://docs.sui.io/onchain-finance/deepbookv3/deepbook)
-- [Walrus Builder Telegram](https://go.sui.io/ofw-walrus-tg) · [Sui Overflow Telegram](https://go.sui.io/suioverflow2026-tg)
+Live-verified on testnet: full mint → tick → DeepBook swap → Walrus artifact → MemWal recall; Seal encrypt/decrypt round-trip; cross-agent read (`CrossAgentReadEvent`); Walrus-loaded LLM strategy dispatched.
 
 ---
 
-*Synapse Vault — built for Sui Overflow 2026 · Walrus Specialized Track · Headline Partner.*
-*Synapse Core — the substrate underneath, free and open-source for the entire Sui ecosystem.*
+## 10. Honest status
+
+| Item | Note |
+|---|---|
+| Mainnet | Testnet only. Mainnet is a deliberate cutover (publish gas + real DEEP funding + a funded dry-run). |
+| Sui Stack Messaging | Built + typecheck-verified; live channel creation needs a funded owner wallet (operator-side). |
+| DEEP fee path | Testnet pools accept a zero-DEEP swap; mainnet needs the treasury to hold DEEP. Documented in `deepbook.ts`. |
+| Third-party audit | Not done. The threat model, the Walrus-strategy allowlist, and CI cover the intent; a professional audit precedes mainnet. |
+| AI advisor | Server-side only — the browser in-tab runtime excludes `@anthropic-ai/sdk` and degrades to a noop. |
+
+---
+
+## 11. Security
+
+See **[THREAT_MODEL.md](./THREAT_MODEL.md)** — session-key compromise, Walrus-loaded code injection, MemWal namespace poisoning, oracle manipulation, key custody, and the mitigations built into the architecture.
+
+---
+
+## 12. Repo layout
+
+```
+move/synapse_core        8 Move modules — the policy engine + marketplace
+move/synapse_seal        Seal access-policy package
+sdk/packages/*           client · vault (runtime) · memwal-bridge · indexer · adapters/langgraph
+web/dashboard            Next.js app (mint, marketplace, per-vault dashboard)
+web/site                 marketing site (Walrus Sites)
+examples/messaging-demo  Sui Stack Messaging integration (isolated, sui 1.x)
+infrastructure/aws       CDK + secret-push scripts for hosted deployment
+scripts                  backtests, dev utilities, CI checks
+```

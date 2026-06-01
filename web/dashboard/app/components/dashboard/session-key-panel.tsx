@@ -257,7 +257,7 @@ export function SessionKeyPanel({
               toast.push({
                 variant: 'info',
                 title: 'Runtime setup walkthrough',
-                body: 'See docs/runtime-setup.md in the repo.',
+                body: 'See README.md in the repo.',
               });
             }}
           >

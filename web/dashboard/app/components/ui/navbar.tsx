@@ -134,16 +134,14 @@ function BurgerIcon({ open }: { open: boolean }) {
 function Logo() {
   return (
     <Link href="/" className="group flex shrink-0 items-center gap-2.5" aria-label="Synapse Vault">
-      <svg
-        viewBox="0 0 36 36"
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/logo.png"
+        alt="Synapse Vault"
+        width={36}
+        height={36}
         className="h-9 w-9 transition-transform duration-300 group-hover:rotate-12"
-        aria-hidden
-      >
-        <rect x="3" y="3" width="14" height="14" rx="2" fill="#FF6B35" stroke="#030F1C" strokeWidth="2" />
-        <rect x="19" y="3" width="14" height="14" rx="2" fill="#5BD49C" stroke="#030F1C" strokeWidth="2" />
-        <rect x="3" y="19" width="14" height="14" rx="2" fill="#9D7AEB" stroke="#030F1C" strokeWidth="2" />
-        <rect x="19" y="19" width="14" height="14" rx="2" fill="#4A9BFF" stroke="#030F1C" strokeWidth="2" />
-      </svg>
+      />
       <span className="hidden whitespace-nowrap font-display text-lg font-extrabold tracking-tight text-ink sm:inline">
         Synapse<span className="text-accent-orange">.</span>
       </span>
