@@ -8,6 +8,7 @@ import {
   useSignAndExecuteTransaction,
   useSignPersonalMessage,
   useSuiClient,
+  useSuiClientQuery,
 } from '@mysten/dapp-kit';
 import { addDelegateKey, createAccount } from '@mysten-incubation/memwal/account';
 import { CodeTag } from '../ui/code-tag';
@@ -852,6 +853,31 @@ function TreasuryStep({
   onAdvance: () => void;
   onBack: () => void;
 }) {
+  // Reserve enough SUI for the mint tx gas + the session-key gas seed the PTB
+  // splits off, so the user can't fund the treasury with their entire balance
+  // and leave nothing to pay for the transaction itself.
+  const GAS_RESERVE_SUI = 0.1;
+
+  const account = useCurrentAccount();
+  const balanceQ = useSuiClientQuery(
+    'getBalance',
+    { owner: account?.address ?? '', coinType: '0x2::sui::SUI' },
+    { enabled: account !== null, refetchInterval: 15_000 },
+  );
+  const walletSui = balanceQ.data ? Number(BigInt(balanceQ.data.totalBalance)) / 1e9 : null;
+  const maxFund = walletSui !== null ? Math.max(0, walletSui - GAS_RESERVE_SUI) : null;
+
+  const [input, setInput] = useState(form.fundingSui.toString());
+  const parsed = Number(input);
+  const valid =
+    Number.isFinite(parsed) &&
+    parsed >= 0.01 &&
+    (maxFund === null || parsed <= maxFund + 1e-9);
+
+  function commit(v: number): void {
+    onChange({ ...form, fundingSui: v });
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
@@ -859,23 +885,74 @@ function TreasuryStep({
       exit={{ opacity: 0 }}
       className="mt-4 grid gap-4 rounded-sm border border-divider bg-paper p-4"
     >
-      <Slider
-        label="Initial treasury (SUI from your wallet)"
-        value={form.fundingSui}
-        onChange={(v) => onChange({ ...form, fundingSui: v })}
-        min={0.01}
-        max={1}
-        step={0.01}
-        suffix=" SUI"
-      />
+      <label className="grid gap-1.5">
+        <span className="flex items-baseline justify-between gap-3">
+          <span className="font-display text-sm font-semibold">
+            Initial treasury (SUI from your wallet)
+          </span>
+          <span className="font-mono text-[10px] text-ink-mute">
+            wallet:{' '}
+            {walletSui !== null
+              ? `${walletSui.toFixed(4)} SUI`
+              : balanceQ.isLoading
+                ? '…'
+                : account
+                  ? '—'
+                  : 'connect wallet'}
+          </span>
+        </span>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            inputMode="decimal"
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              const n = Number(e.target.value);
+              if (Number.isFinite(n) && n > 0) commit(n);
+            }}
+            className="w-full rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
+            placeholder="e.g. 10"
+          />
+          <span className="font-mono text-[11px] text-ink-mute">SUI</span>
+          {maxFund !== null && maxFund > 0 && (
+            <button
+              type="button"
+              className="btn-flat"
+              data-variant="ghost"
+              onClick={() => {
+                const m = Math.floor(maxFund * 1000) / 1000;
+                setInput(m.toString());
+                commit(m);
+              }}
+            >
+              Max
+            </button>
+          )}
+        </div>
+        {!valid && input.trim() !== '' && (
+          <span className="font-mono text-[10px] text-state-revoked">
+            {parsed < 0.01
+              ? 'Minimum 0.01 SUI.'
+              : maxFund !== null
+                ? `Exceeds available balance (max ${maxFund.toFixed(4)} SUI after gas reserve).`
+                : 'Enter a valid amount.'}
+          </span>
+        )}
+      </label>
       <p className="font-mono text-[11px] text-ink-mute">
-        Testnet starter amount — the mint PTB splits this off your wallet&rsquo;s gas
-        coin and deposits it into the AgentIdentity treasury. Production DAO vaults
-        typically seed $100K&ndash;$10M equivalent and top up via the same{' '}
-        <code>wallet::deposit</code> path post-mint.
+        The mint PTB splits this off your wallet&rsquo;s SUI and deposits it into the
+        AgentIdentity treasury (a ~{GAS_RESERVE_SUI} SUI reserve is left for gas + the
+        session-key seed). Add more any time post-mint via the same{' '}
+        <code>wallet::deposit</code> path.
       </p>
       <div className="flex items-center gap-3 pt-2">
-        <button className="btn-flat" data-variant="primary" onClick={onAdvance}>
+        <button
+          className="btn-flat"
+          data-variant="primary"
+          onClick={onAdvance}
+          disabled={!valid}
+        >
           Continue
         </button>
         <button className="btn-flat" data-variant="ghost" onClick={onBack}>
