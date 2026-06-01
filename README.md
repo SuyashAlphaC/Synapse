@@ -1,8 +1,19 @@
-# Synapse Vault
+<p align="center">
+  <img src="assets/logo.png" alt="Synapse Vault" width="150" />
+</p>
 
-> **Autonomous AI treasury management on Sui — powered by Walrus.**
-> Hire an AI portfolio manager. Pay it in basis points. Revoke it in one click.
-> Every decision is remembered, audited, and provable — on Walrus.
+<h1 align="center">Synapse Vault</h1>
+
+<p align="center"><b>Autonomous AI treasury management on Sui — powered by Walrus.</b></p>
+<p align="center"><i>Hire an AI portfolio manager. Pay it in basis points. Revoke it in one click.<br>Every decision is remembered, audited, and provable — on Walrus.</i></p>
+
+<p align="center">
+  <a href="https://synapse-kappa-sable.vercel.app">Live demo</a> ·
+  <a href="https://github.com/SuyashAlphaC/Synapse">Code</a> ·
+  Sui Overflow 2026 · Walrus Track
+</p>
+
+---
 
 Built for **Sui Overflow 2026 — Walrus Track**.
 
