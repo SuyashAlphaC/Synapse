@@ -35,12 +35,21 @@ export const metadata: Metadata = {
   title: 'Synapse Vault — Autonomous AI Treasury Management',
   description:
     'Hire an AI portfolio manager. Pay it in basis points. Revoke it in one click. Synapse Vault on Sui.',
-  metadataBase: new URL('https://synapsevault.xyz'),
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL ?? 'https://synapse-kappa-sable.vercel.app',
+  ),
   openGraph: {
-    title: 'Synapse Vault',
-    description: 'Autonomous AI Treasury Management on Sui — 1% AUM, fully on-chain audit.',
+    title: 'Synapse Vault — Autonomous AI treasury on Sui, powered by Walrus',
+    description:
+      'Hire an AI portfolio manager. Pay it in basis points. Revoke it in one click. Every decision remembered, audited, and provable — on Walrus.',
     siteName: 'Synapse Vault',
     type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Synapse Vault — Autonomous AI treasury on Sui, powered by Walrus',
+    description:
+      'Hire an AI portfolio manager. Pay it in basis points. Revoke it in one click — every decision on Walrus.',
   },
 };
 
