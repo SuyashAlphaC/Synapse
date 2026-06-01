@@ -188,6 +188,6 @@ async function evaluate(
 }
 
 function usdToAtomic(usd: number, priceUsd: number, decimals: number): bigint {
-  if (priceUsd <= 0) return 0n;
+  if (!Number.isFinite(usd) || !Number.isFinite(priceUsd) || priceUsd <= 0) return 0n;
   return BigInt(Math.max(0, Math.floor((usd / priceUsd) * Math.pow(10, decimals))));
 }
