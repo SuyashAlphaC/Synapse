@@ -192,6 +192,7 @@ interface DecodedIdToken {
   sub: string;
   aud: string;
   iss: string;
+  exp?: number;
   email?: string;
   nonce?: string;
 }
@@ -222,6 +223,18 @@ export async function completeSignInFromCallback(): Promise<ActiveZkLoginAccount
   const decoded = decodeJwtPayload(jwt);
   if (decoded.nonce !== pending.nonce) {
     throw new Error('JWT nonce mismatch — possible replay');
+  }
+  // The prover is the final authority, but validate the token locally first so
+  // a token minted for a different app (aud confusion), a non-Google issuer, or
+  // an expired token is rejected before we derive an address / request a proof.
+  if (GOOGLE_CLIENT_ID && decoded.aud !== GOOGLE_CLIENT_ID) {
+    throw new Error('JWT aud mismatch — token was not issued for this app');
+  }
+  if (decoded.iss !== 'https://accounts.google.com' && decoded.iss !== 'accounts.google.com') {
+    throw new Error(`JWT iss unexpected: ${decoded.iss}`);
+  }
+  if (typeof decoded.exp === 'number' && decoded.exp * 1000 <= Date.now()) {
+    throw new Error('JWT expired — sign in again');
   }
 
   const userSalt = getOrCreateUserSalt(decoded.sub, decoded.aud);

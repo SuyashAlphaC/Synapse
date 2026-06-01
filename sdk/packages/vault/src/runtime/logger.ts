@@ -78,8 +78,12 @@ function redactString(value: string): string {
  * Exported for tests; pino is wired to call it on every log invocation.
  */
 export function redactBindings(input: unknown, depth = 0): unknown {
-  if (depth > 6) return input;
+  // Always scrub string leaves, regardless of depth — returning a raw string at
+  // the depth cap would leak a secret nested deeper than the recursion limit.
   if (typeof input === 'string') return redactString(input);
+  // Past the cap, stop recursing into containers (cycle / runaway guard) but
+  // the value here is no longer a string, so nothing sensitive is emitted raw.
+  if (depth > 6) return input;
   if (input instanceof Error) {
     // Error fields are non-enumerable; `Object.entries` returns [] and
     // the log line ends up as `"err":{}`. Inline-serialize to a plain

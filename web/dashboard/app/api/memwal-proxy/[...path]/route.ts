@@ -51,6 +51,10 @@ const STRIP_RESPONSE_HEADERS = new Set([
 // Never cache: this is a live credentialed relay of per-tick requests.
 export const dynamic = 'force-dynamic';
 
+// Cap relayed request bodies. MemWal calls are small JSON/text payloads; this
+// bounds the proxy's memory use and its value as an anonymizing relay.
+const MAX_BODY_BYTES = 2 * 1024 * 1024; // 2 MB
+
 async function proxy(request: NextRequest, segments: string[]): Promise<Response> {
   const suffix = segments.map(encodeURIComponent).join('/');
   const target = `${RELAYER_BASE}/${suffix}${request.nextUrl.search}`;
@@ -61,11 +65,22 @@ async function proxy(request: NextRequest, segments: string[]): Promise<Response
   });
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD';
+  let bodyBuf: ArrayBuffer | undefined;
+  if (hasBody) {
+    const declared = Number(request.headers.get('content-length') ?? '0');
+    if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+      return Response.json({ error: 'memwal-proxy: request body too large' }, { status: 413 });
+    }
+    bodyBuf = await request.arrayBuffer();
+    if (bodyBuf.byteLength > MAX_BODY_BYTES) {
+      return Response.json({ error: 'memwal-proxy: request body too large' }, { status: 413 });
+    }
+  }
   const init: RequestInit = {
     method: request.method,
     headers: forwardHeaders,
     redirect: 'manual',
-    ...(hasBody ? { body: await request.arrayBuffer() } : {}),
+    ...(bodyBuf ? { body: bodyBuf } : {}),
   };
 
   let upstream: Response;

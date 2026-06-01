@@ -290,7 +290,7 @@ function interpolate(t: number, lo: number, hi: number): number {
 }
 
 function usdToAtomic(usd: number, priceUsd: number, decimals: number): bigint {
-  if (priceUsd <= 0) return 0n;
+  if (!Number.isFinite(usd) || !Number.isFinite(priceUsd) || priceUsd <= 0) return 0n;
   const units = usd / priceUsd;
   return BigInt(Math.max(0, Math.floor(units * Math.pow(10, decimals))));
 }

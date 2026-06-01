@@ -13,6 +13,7 @@ import { getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
 import { defaultNetworkConfig } from '@synapse-core/client';
 import type {
   EventKind,
+  EventMetadata,
   IndexedEvent,
   IndexerOptions,
   RebalanceRecord,
@@ -145,23 +146,26 @@ export class SynapseIndexer {
   }
 
   private normalize(kind: EventKind, ev: unknown): IndexedEvent | null {
-    // The Sui RPC returns parsed JSON for the event payload under `parsedJson`.
-    // We rely on the field-name parity guaranteed by the Move source.
+    // Sui RPC returns the Move event payload under `parsedJson` using the
+    // on-chain (snake_case) field names, with u64 as decimal strings, vector<u8>
+    // as number[], and TypeName as `{ name }`. We decode each kind explicitly
+    // into the camelCase / bigint / Uint8Array shape the rest of the package
+    // expects. A blanket cast (the previous behavior) left every field
+    // mis-named and mis-typed, so all vault filters silently matched nothing.
     const e = ev as {
       id: { txDigest: string; eventSeq: string };
       timestampMs?: string | null;
       parsedJson: Record<string, unknown>;
     };
-    const meta = {
+    const meta: EventMetadata = {
       txDigest: e.id.txDigest,
       eventSeq: BigInt(e.id.eventSeq),
       timestampMs: BigInt(e.timestampMs ?? '0'),
       checkpoint: 0n,
     };
-    // Cast through `unknown` — the indexer trusts the on-chain Move source
-    // to emit fields matching our Sui-side type bindings. Per-field
-    // validation lives in Phase 3 once we add Postgres persistence.
-    return { kind, payload: e.parsedJson, meta } as unknown as IndexedEvent;
+    const payload = decodePayload(kind, e.parsedJson ?? {});
+    if (!payload) return null;
+    return { kind, payload, meta } as IndexedEvent;
   }
 
   // -------------------------------------------------------------------------
@@ -361,6 +365,142 @@ function findArtifactPublishAfter(
     return { payload: e.payload };
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// parsedJson decoding (snake_case Move payload -> typed camelCase event)
+// ---------------------------------------------------------------------------
+
+function str(v: unknown): string {
+  return typeof v === 'string' ? v : v == null ? '' : String(v);
+}
+
+function big(v: unknown): bigint {
+  if (typeof v === 'bigint') return v;
+  if (typeof v === 'number') return BigInt(Math.trunc(v));
+  if (typeof v === 'string' && v.trim() !== '') return BigInt(v);
+  return 0n;
+}
+
+function num(v: unknown): number {
+  return typeof v === 'number' ? v : Number(v ?? 0);
+}
+
+function boolean(v: unknown): boolean {
+  return v === true || v === 'true';
+}
+
+/** vector<u8> arrives as number[]; tolerate Uint8Array / base64-ish string. */
+function bytes(v: unknown): Uint8Array {
+  if (v instanceof Uint8Array) return v;
+  if (Array.isArray(v)) return Uint8Array.from(v as number[]);
+  if (typeof v === 'string') return new TextEncoder().encode(v);
+  return new Uint8Array();
+}
+
+/** Move `TypeName` renders as `{ name: "addr::mod::Struct" }` (or a bare string). */
+function typeName(v: unknown): string {
+  if (typeof v === 'string') return v;
+  if (v && typeof v === 'object' && 'name' in (v as Record<string, unknown>)) {
+    return String((v as Record<string, unknown>).name);
+  }
+  return v == null ? '' : String(v);
+}
+
+function decodePayload(kind: EventKind, p: Record<string, unknown>): IndexedEvent['payload'] | null {
+  switch (kind) {
+    case 'agent_minted':
+      return {
+        agentId: str(p.agent_id),
+        owner: str(p.owner),
+        sessionAddr: str(p.session_addr),
+        expiryEpoch: big(p.expiry_epoch),
+        spendPerEpoch: big(p.spend_per_epoch),
+        memwalNamespace: bytes(p.memwal_namespace),
+        strategyId: str(p.strategy_id),
+      };
+    case 'agent_revoked':
+      return {
+        agentId: str(p.agent_id),
+        owner: str(p.owner),
+        memwalDelegateKeyId: bytes(p.memwal_delegate_key_id),
+        revokedAtEpoch: big(p.revoked_at_epoch),
+      };
+    case 'agent_funded':
+      return {
+        agentId: str(p.agent_id),
+        tokenType: typeName(p.token_type),
+        amount: big(p.amount),
+      };
+    case 'spend':
+      return {
+        agentId: str(p.agent_id),
+        targetPkg: str(p.target_pkg),
+        tokenType: typeName(p.token_type),
+        amount: big(p.amount),
+        epoch: big(p.epoch),
+        remainingBudget: big(p.remaining_budget),
+      };
+    case 'artifact_published':
+      return {
+        agentId: str(p.agent_id),
+        artifactSlot: big(p.artifact_slot),
+        walrusBlobId: bytes(p.walrus_blob_id),
+        sha256: bytes(p.sha256),
+        mimeType: str(p.mime_type),
+        sizeBytes: big(p.size_bytes),
+        label: str(p.label),
+        sealEncrypted: boolean(p.seal_encrypted),
+        epoch: big(p.epoch),
+      };
+    case 'cross_agent_read':
+      return {
+        readerId: str(p.reader_id),
+        writerId: str(p.writer_id),
+        namespace: bytes(p.namespace),
+        memwalMemoryId: bytes(p.memwal_memory_id),
+        epoch: big(p.epoch),
+      };
+    case 'message_sent':
+      return {
+        senderAgentId: str(p.sender_agent_id),
+        outboxId: str(p.outbox_id),
+        messageDigest: bytes(p.message_digest),
+        recipientInboxId: str(p.recipient_inbox_id),
+        epoch: big(p.epoch),
+      };
+    case 'message_received':
+      return {
+        receiverAgentId: str(p.receiver_agent_id),
+        inboxId: str(p.inbox_id),
+        messageDigest: bytes(p.message_digest),
+        senderOutboxId: str(p.sender_outbox_id),
+        epoch: big(p.epoch),
+      };
+    case 'swap':
+      return {
+        agentId: str(p.agent_id),
+        poolId: str(p.pool_id),
+        deepbookPkg: str(p.deepbook_pkg),
+        baseType: typeName(p.base_type),
+        quoteType: typeName(p.quote_type),
+        direction: num(p.direction),
+        inputAmount: big(p.input_amount),
+        outputAmount: big(p.output_amount),
+        note: str(p.note),
+        epoch: big(p.epoch),
+      };
+    case 'action_log':
+      return {
+        agentId: str(p.agent_id),
+        kind: num(p.kind),
+        description: str(p.description),
+        payloadHash: bytes(p.payload_hash),
+        epoch: big(p.epoch),
+      };
+    default:
+      return null;
+  }
 }
 
 function shortenAddr(addr: string): string {

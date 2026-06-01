@@ -59,7 +59,7 @@ import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import type { SuiTransactionBlockResponse } from '@mysten/sui/jsonRpc';
 import { Transaction } from '@mysten/sui/transactions';
 import { ActionKind, publishArtifactCall, target } from '@synapse-core/client';
-import type { AuditReport, ExecutionReceipt, HoldingSnapshot, StrategyInput } from '../types.js';
+import type { AuditReport, ExecutedTrade, ExecutionReceipt, HoldingSnapshot, StrategyInput } from '../types.js';
 import { buildRebalancePTB, makeExecutedTrade } from '../executor.js';
 import { renderReport } from '../report.js';
 import { loadAgentState } from './state.js';
@@ -72,7 +72,8 @@ import {
   rememberStrategyOutcome,
 } from './memory.js';
 import { uploadReportBlob, parseArtifactSlot, type SealUploadOptions } from './publisher.js';
-import { deepbookSwap, DEEPBOOK_PACKAGE_ID_TESTNET } from './deepbook.js';
+import { deepbookSwap } from './deepbook.js';
+import { deepbookPackageForRuntime } from './config.js';
 import { loadSessionKeypair, loadMemwalDelegateFromKeyFile } from './keypair.js';
 import { createLogger, type VaultLogger } from './logger.js';
 import type { RuntimeConfig } from './config.js';
@@ -492,7 +493,14 @@ export class VaultRuntime {
     // alpha means the strategy outperformed a do-nothing baseline; that's
     // what we record on-chain and what we pay royalty on.
     const alpha = this.#computeAlpha(holdings, market.prices);
-    const royaltyMist = this.#computeRoyaltyMist(alpha, market.prices, activeStrategy);
+    const royaltyMistRaw = this.#computeRoyaltyMist(alpha, market.prices, activeStrategy);
+    // Royalty is paid in SUI. If the vault doesn't hold enough SUI, paying it
+    // would abort (EInsufficientBalance) and revert the WHOLE tick — losing the
+    // record_tick + attestation for a USDC-only vault. Skip the royalty this
+    // tick instead; the alpha is still recorded and the strategist is paid on a
+    // later tick once SUI is available.
+    const suiBalance = holdings.find((h) => h.coinTypeTag === '0x2::sui::SUI')?.amount ?? 0n;
+    const royaltyMist = royaltyMistRaw > 0n && suiBalance >= royaltyMistRaw ? royaltyMistRaw : 0n;
 
     if (decision.kind === 'noop') {
       const receipt = await this.#executeNoop(
@@ -503,17 +511,14 @@ export class VaultRuntime {
         alpha,
         royaltyMist,
       );
-      // Persist this tick's outcome + strategy memory updates so the next
-      // tick can recover counters/facts. Fires on every tick (noop AND
-      // rebalance) so stateful strategies advance every iteration.
-      await rememberStrategyOutcome({
-        memwal,
-        namespace,
-        decision,
-        receipt,
-        memoryWrite,
-      });
+      // No trade happened, so post-tick holdings == pre-tick holdings.
+      // Save the snapshot BEFORE the (best-effort) memory write so a relayer
+      // failure can never drop the alpha baseline.
       this.#savePreviousTick(holdings, currentEpoch);
+      // Persist this tick's outcome + strategy memory updates so the next
+      // tick can recover counters/facts. Best-effort: a MemWal outage must
+      // not count as a tick failure (it would trip the kill-switch).
+      await this.#rememberSafe({ memwal, namespace, decision, receipt, memoryWrite });
       return receipt;
     }
 
@@ -548,7 +553,7 @@ export class VaultRuntime {
       plan: decision,
       report,
       reportWalrusBlobId: upload?.blobId ?? '',
-      deepbookPkg: DEEPBOOK_PACKAGE_ID_TESTNET,
+      deepbookPkg: deepbookPackageForRuntime(this.#config),
       swap: deepbookSwap,
       sealEncrypted: Boolean(sealOpts),
       ...(upload ? { blobSha256: upload.sha256, blobSizeBytes: upload.sizeBytes } : {}),
@@ -598,14 +603,16 @@ export class VaultRuntime {
       epoch: currentEpoch,
       executedAt: new Date().toISOString(),
     };
-    await rememberStrategyOutcome({
-      memwal,
-      namespace,
-      decision,
-      receipt,
-      memoryWrite,
-    });
-    this.#savePreviousTick(holdings, currentEpoch);
+    // Snapshot the POST-trade holdings (derived from the real executed trade
+    // amounts) as next tick's alpha-vs-hold baseline. Saving the pre-trade
+    // `holdings` here would double-count the rebalance itself as alpha, inflating
+    // on-chain reputation and the royalty paid to the strategist. Saved BEFORE
+    // the memory write so a relayer failure cannot drop the baseline.
+    const postTradeHoldings = applyTradesToHoldings(holdings, trades);
+    this.#savePreviousTick(postTradeHoldings, currentEpoch);
+    // Best-effort: the trade is already final on-chain; a MemWal outage must not
+    // be reclassified as a tick failure (which would trip the kill-switch).
+    await this.#rememberSafe({ memwal, namespace, decision, receipt, memoryWrite });
     this.#logger.info(
       {
         txDigest: receipt.txDigest,
@@ -935,6 +942,26 @@ export class VaultRuntime {
     };
   }
 
+  /**
+   * Persist the strategy outcome to MemWal, swallowing any error. The trade (or
+   * noop attestation) is already committed on-chain by the time this runs, so a
+   * relayer timeout/outage must NOT propagate — otherwise a healthy runtime that
+   * successfully traded would count the tick as a failure and, after
+   * `maxConsecutiveFailures`, kill itself. Memory is best-effort durability, not
+   * a correctness gate.
+   */
+  async #rememberSafe(args: Parameters<typeof rememberStrategyOutcome>[0]): Promise<void> {
+    try {
+      await rememberStrategyOutcome(args);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.#logger.warn(
+        { err: message },
+        'memwal remember failed; on-chain action already committed, continuing',
+      );
+    }
+  }
+
   #computeAlpha(
     currentHoldings: HoldingSnapshot[],
     prices: Record<string, number>,
@@ -1003,6 +1030,44 @@ export class VaultRuntime {
       recordedAtMs: Date.now(),
     };
   }
+}
+
+/**
+ * Apply executed trades to a holdings snapshot to derive the post-trade
+ * holdings, without an extra RPC. Subtracts each trade's `amountIn` from its
+ * `fromTypeTag` balance and adds `amountOut` to its `toTypeTag` balance. A coin
+ * type received but not previously held is added with a best-effort decimals
+ * guess (it will be reloaded with exact decimals on the next tick); priceUsd /
+ * valueUsd are left 0 because `#computeAlpha` recomputes value from raw amounts
+ * and live prices.
+ */
+function applyTradesToHoldings(
+  holdings: HoldingSnapshot[],
+  trades: ExecutedTrade[],
+): HoldingSnapshot[] {
+  const byType = new Map<string, HoldingSnapshot>(
+    holdings.map((h) => [h.coinTypeTag, { ...h }]),
+  );
+  for (const t of trades) {
+    const from = byType.get(t.fromTypeTag);
+    if (from) {
+      from.amount = from.amount > t.amountIn ? from.amount - t.amountIn : 0n;
+    }
+    const to = byType.get(t.toTypeTag);
+    if (to) {
+      to.amount = to.amount + t.amountOut;
+    } else {
+      byType.set(t.toTypeTag, {
+        coinTypeTag: t.toTypeTag,
+        symbol: symbolFromTypeTag(t.toTypeTag),
+        amount: t.amountOut,
+        decimals: from?.decimals ?? 9,
+        priceUsd: 0,
+        valueUsd: 0,
+      });
+    }
+  }
+  return [...byType.values()];
 }
 
 function priceHoldings(holdings: HoldingSnapshot[], prices: Record<string, number>): HoldingSnapshot[] {

@@ -11,7 +11,7 @@
  *
  * Optional:
  *   PORT                  default 4000
- *   HOST                  default 0.0.0.0
+ *   HOST                  default 127.0.0.1 (set 0.0.0.0 to expose publicly)
  *   SYNAPSE_POLL_MS       default 2000
  *   SYNAPSE_PAGE_SIZE     default 50
  */
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   const packageId = required('SYNAPSE_PACKAGE_ID');
   const network = parseNetwork(process.env['SYNAPSE_NETWORK']);
   const port = Number(process.env['PORT'] ?? 4000);
-  const host = process.env['HOST'] ?? '0.0.0.0';
+  const host = process.env['HOST'] ?? '127.0.0.1';
   const pollIntervalMs = Number(process.env['SYNAPSE_POLL_MS'] ?? 2000);
   const pageSize = Number(process.env['SYNAPSE_PAGE_SIZE'] ?? 50);
 

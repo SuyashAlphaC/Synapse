@@ -21,6 +21,13 @@ export const PYTH_FEED_IDS = {
 const DEFAULT_HERMES_URL = 'https://hermes.pyth.network';
 
 /**
+ * Reject Pyth prices older than this. A stale feed silently poisons NAV, alpha,
+ * royalty and minAmountOut sizing; dropping it lets the market loader fall back
+ * to the live DeepBook mid price instead.
+ */
+const MAX_PRICE_AGE_SEC = 60;
+
+/**
  * Map from human-readable symbol → Pyth feed ID. Tests can override to use
  * dummy IDs; the runtime defaults to the canonical mainnet feeds (which are
  * valid for testnet too — Pyth Hermes is a single global service).
@@ -65,7 +72,7 @@ export class PythOracle implements OraclePriceProvider {
     if (!feedId) return null;
     const feeds = await this.#connection.getLatestPriceFeeds([feedId]);
     if (!feeds || feeds.length === 0) return null;
-    const price = feeds[0]?.getPriceUnchecked();
+    const price = feeds[0]?.getPriceNoOlderThan(MAX_PRICE_AGE_SEC);
     return price ? price.getPriceAsNumberUnchecked() : null;
   }
 
@@ -88,8 +95,8 @@ export class PythOracle implements OraclePriceProvider {
     for (const feed of feeds) {
       const sym = symbolByFeedId[`0x${feed.id.replace(/^0x/, '')}`] ?? symbolByFeedId[feed.id];
       if (!sym) continue;
-      const price = feed.getPriceUnchecked();
-      if (!price) continue;
+      const price = feed.getPriceNoOlderThan(MAX_PRICE_AGE_SEC);
+      if (!price) continue; // stale — omit so the DeepBook mid is used instead
       const usd = price.getPriceAsNumberUnchecked();
       result[sym] = usd;
       // Mirror to every alias that resolved to the same feed (e.g., DBUSDC ← USDC).

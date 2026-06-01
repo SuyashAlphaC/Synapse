@@ -64,6 +64,16 @@ const typeDefs = /* GraphQL */ `
   }
 `;
 
+// Hard ceiling on any single query's page size — bounds the cost of an
+// otherwise-uncapped `events(limit: …)` / `rebalances(limit: …)` against the
+// O(n) in-memory resolvers.
+const MAX_PAGE_LIMIT = 1000;
+
+function clampLimit(requested: number | undefined, fallback: number): number {
+  const n = Number.isFinite(requested) ? (requested as number) : fallback;
+  return Math.min(Math.max(Math.trunc(n), 0), MAX_PAGE_LIMIT);
+}
+
 export function buildSchema(indexer: SynapseIndexer) {
   return createSchema({
     typeDefs,
@@ -71,7 +81,9 @@ export function buildSchema(indexer: SynapseIndexer) {
       Query: {
         events: (_p: unknown, args: { limit: number; offset: number }) => {
           const all = indexer.allEvents();
-          return all.slice(args.offset, args.offset + args.limit).map((e) => ({
+          const limit = clampLimit(args.limit, 100);
+          const offset = Math.max(Math.trunc(Number(args.offset) || 0), 0);
+          return all.slice(offset, offset + limit).map((e) => ({
             kind: e.kind,
             txDigest: e.meta.txDigest,
             timestampMs: e.meta.timestampMs.toString(),
@@ -99,7 +111,7 @@ export function buildSchema(indexer: SynapseIndexer) {
         rebalances: (_p: unknown, args: { vaultId: string; limit: number }) =>
           indexer
             .rebalances(args.vaultId)
-            .slice(-args.limit)
+            .slice(-clampLimit(args.limit, 50))
             .reverse()
             .map((r) => ({
               ...r,
