@@ -144,7 +144,10 @@ export class VaultRuntimeStack extends Stack {
           cluster,
           taskDefinition,
           taskCount: 1,
-          // No public IP needed; outbound only.
+          // Public subnet with no NAT, so a public IP is REQUIRED for outbound
+          // egress (RPC / Walrus / MemWal). The task still accepts no inbound —
+          // the default security group has no ingress rules. For a fully private
+          // task, switch to PRIVATE_WITH_EGRESS + a NAT gateway and set this false.
           assignPublicIp: true,
           subnetSelection: { subnetType: ec2.SubnetType.PUBLIC },
         }),
