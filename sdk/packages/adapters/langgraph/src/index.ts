@@ -231,57 +231,80 @@ export class SynapseStore extends BaseStore {
       } as Item;
     }
     // Cache miss — query MemWal semantically using the key itself as the
-    // search query and filter by exact match. Imperfect because MemWal is
-    // ranked-similarity rather than key-indexed; first match wins.
+    // search query. MemWal is ranked-by-similarity, not key-indexed, so a
+    // stale write (or an older value) can outrank the newest record. We must
+    // therefore scan ALL matching records and resolve by the most recent
+    // `writtenAt`; if the newest is a tombstone the item is deleted. Taking the
+    // first similarity match (the previous behavior) resurrected deleted/old
+    // values. Over-fetch to raise the chance of capturing the tombstone.
     const recalled = await recall({
       client: this.client,
       query: op.key,
-      limit: this.defaultLimit,
+      limit: Math.max(this.defaultLimit, GET_RECALL_LIMIT),
       namespace: namespacePath(op.namespace),
     });
+    let newest: EncodedItem | null = null;
+    let newestBlob = '';
     for (const memory of recalled.results) {
       const decoded = tryDecode(memory.text);
       if (!decoded) continue;
       if (decoded.key !== op.key) continue;
       if (!arraysEqual(decoded.namespace, op.namespace)) continue;
-      if (decoded.tombstone) return null;
-      this.keyIndex.set(indexKey, { blobId: memory.blob_id, value: decoded.value });
-      return {
-        namespace: op.namespace,
-        key: op.key,
-        value: decoded.value,
-        createdAt: new Date(decoded.writtenAt),
-        updatedAt: new Date(decoded.writtenAt),
-      } as Item;
+      if (newest === null || isNewer(decoded, newest)) {
+        newest = decoded;
+        newestBlob = memory.blob_id;
+      }
     }
-    return null;
+    if (newest === null || newest.tombstone) return null;
+    this.keyIndex.set(indexKey, { blobId: newestBlob, value: newest.value });
+    return {
+      namespace: op.namespace,
+      key: op.key,
+      value: newest.value,
+      createdAt: new Date(newest.writtenAt),
+      updatedAt: new Date(newest.writtenAt),
+    } as Item;
   }
 
   private async handleSearch(op: SearchOperation): Promise<SearchItem[]> {
     const query = op.query ?? '*';
     const limit = op.limit ?? this.defaultLimit;
+    const offset = op.offset ?? 0;
     const namespaceOverride =
       op.namespacePrefix.length > 0 ? namespacePath(op.namespacePrefix) : undefined;
+    // Over-fetch by `offset` — MemWal recall has no offset parameter, so
+    // slicing a `limit`-sized page by `offset` would drop never-fetched
+    // results (and return empty whenever offset >= limit).
     const recalled = await recall({
       client: this.client,
       query,
-      limit,
+      limit: offset + limit,
       ...(namespaceOverride !== undefined ? { namespace: namespaceOverride } : {}),
     });
 
-    const offset = op.offset ?? 0;
-    const matches: SearchItem[] = [];
+    // Collapse to the newest record per (namespace, key) so an older write
+    // can't shadow a newer one and a tombstone correctly hides the prior value.
+    const newestByKey = new Map<string, { decoded: EncodedItem; distance: number }>();
     for (const memory of recalled.results) {
       const decoded = tryDecode(memory.text);
       if (!decoded) continue;
-      if (decoded.tombstone) continue;
       if (!namespaceMatchesPrefix(decoded.namespace, op.namespacePrefix)) continue;
+      const k = `${namespacePath(decoded.namespace)}::${decoded.key}`;
+      const prev = newestByKey.get(k);
+      if (!prev || isNewer(decoded, prev.decoded)) {
+        newestByKey.set(k, { decoded, distance: memory.distance });
+      }
+    }
+
+    const matches: SearchItem[] = [];
+    for (const { decoded, distance } of newestByKey.values()) {
+      if (decoded.tombstone) continue;
       if (op.filter && !matchesFilter(decoded.value, op.filter)) continue;
       matches.push({
         namespace: decoded.namespace,
         key: decoded.key,
         value: decoded.value,
-        score: similarityFromDistance(memory.distance),
+        score: similarityFromDistance(distance),
         createdAt: new Date(decoded.writtenAt),
         updatedAt: new Date(decoded.writtenAt),
       } as SearchItem);
@@ -290,8 +313,27 @@ export class SynapseStore extends BaseStore {
   }
 
   private handleListNamespaces(op: ListNamespacesOperation): string[][] {
-    const all = Array.from(this.observedNamespaces).map((p) => p.split('/').filter(Boolean));
-    return all.slice(op.offset ?? 0, (op.offset ?? 0) + (op.limit ?? all.length));
+    let all = Array.from(this.observedNamespaces).map((p) => p.split('/').filter(Boolean));
+    // Honor maxDepth by truncating then de-duplicating the prefixes.
+    if (op.maxDepth !== undefined) {
+      const seen = new Set<string>();
+      const truncated: string[][] = [];
+      for (const ns of all) {
+        const cut = ns.slice(0, op.maxDepth);
+        const k = cut.join('/');
+        if (seen.has(k)) continue;
+        seen.add(k);
+        truncated.push(cut);
+      }
+      all = truncated;
+    }
+    // Honor matchConditions (prefix/suffix, with '*' as a single-segment wildcard).
+    if (op.matchConditions && op.matchConditions.length > 0) {
+      all = all.filter((ns) => op.matchConditions!.every((c) => matchesCondition(ns, c)));
+    }
+    const offset = op.offset ?? 0;
+    const limit = op.limit ?? all.length;
+    return all.slice(offset, offset + limit);
   }
 }
 
@@ -316,18 +358,55 @@ function isListNamespaces(op: Operation): op is ListNamespacesOperation {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * How many records to pull when resolving a single key on a cache miss. MemWal
+ * is similarity-ranked, not key-indexed, so the newest record for a key (or its
+ * tombstone) may not be the top hit. Over-fetching raises the chance of seeing
+ * it. Residual: if the key has more than this many revisions a stale value can
+ * still slip through — the durable fix needs a key-indexed lookup or a MemWal
+ * forget API (SDK 0.0.3 has neither).
+ */
+const GET_RECALL_LIMIT = 25;
+
 function arraysEqual(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
 }
 
+/** True when `candidate` was written strictly later than `current`. */
+function isNewer(candidate: EncodedItem, current: EncodedItem): boolean {
+  return new Date(candidate.writtenAt).getTime() > new Date(current.writtenAt).getTime();
+}
+
+/** Apply a single ListNamespaces match condition (prefix/suffix, '*' wildcard). */
+function matchesCondition(
+  ns: string[],
+  cond: { matchType: 'prefix' | 'suffix'; path: string[] },
+): boolean {
+  const { matchType, path } = cond;
+  if (path.length > ns.length) return false;
+  if (matchType === 'prefix') {
+    for (let i = 0; i < path.length; i++) {
+      if (path[i] !== '*' && path[i] !== ns[i]) return false;
+    }
+    return true;
+  }
+  // suffix
+  const start = ns.length - path.length;
+  for (let i = 0; i < path.length; i++) {
+    if (path[i] !== '*' && path[i] !== ns[start + i]) return false;
+  }
+  return true;
+}
+
 /**
  * Convert MemWal's cosine *distance* (0 = identical, 2 = opposite) into a
  * BaseStore-compatible similarity score in [-1, 1] where 1 == identical.
+ * Clamped defensively in case a backend ever returns distance outside [0, 2].
  */
 function similarityFromDistance(distance: number): number {
-  return 1 - distance;
+  return Math.max(-1, Math.min(1, 1 - distance));
 }
 
 function matchesFilter(value: Record<string, unknown>, filter: Record<string, unknown>): boolean {
