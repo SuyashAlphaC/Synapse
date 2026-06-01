@@ -21,15 +21,7 @@ module synapse_seal::policy {
     /// decryption; aborts when `ctx.sender()` is not the authorized address
     /// encoded as the prefix of `id`.
     entry fun seal_approve(id: vector<u8>, ctx: &TxContext) {
-        let sender = bcs::to_bytes(&ctx.sender());
-        // A Sui address BCS-encodes to exactly 32 bytes. Require `id` to be at
-        // least that long so the full-address prefix match is explicit and
-        // fail-closed even if the address encoding ever changed. NOTE: the
-        // suffix after the address is NOT authenticated — it only disambiguates
-        // artifacts under the same address; it neither grants nor restricts
-        // access. Per-artifact revocation would need a richer policy variant.
-        assert!(vector::length(&id) >= vector::length(&sender), ENoAccess);
-        assert!(is_prefix(sender, id), ENoAccess);
+        assert!(is_prefix(bcs::to_bytes(&ctx.sender()), id), ENoAccess);
     }
 
     /// True iff `prefix` is a prefix of `full`.
