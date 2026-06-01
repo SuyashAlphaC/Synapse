@@ -131,7 +131,7 @@ The DAO logs into the Vault dashboard:
 
 One PTB cascade:
 - Flips `AgentIdentity.revoked = true` → all session-key actions abort
-- Emits `AgentRevokedEvent` → indexer triggers MemWal delegate invalidation + Walrus eviction signal
+- Emits `AgentRevokedEvent` → the authoritative kill signal indexers + the off-chain runtime observe (the on-chain revoke already aborts every session-key action the instant it lands; automated MemWal delegate invalidation + Walrus eviction off this event are on the roadmap, not yet wired)
 - Treasury can be drained back to owner via `wallet::drain<T>`
 
 Total time from "agent went rogue" to "agent is dead and all funds reclaimed": **one transaction**. No multi-sig wait. No vendor approval. No off-chain coordination.
