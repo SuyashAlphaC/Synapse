@@ -27,6 +27,14 @@ export function newAgent(
   packageId: string,
   input: MintAgentInput,
 ): TransactionResult {
+  // Mirror the on-chain guards so a bad mint fails fast client-side instead of
+  // costing a round-trip + opaque Move abort (EZeroSpend / EInvalidExpiry).
+  if (input.spendPerEpoch <= 0n) {
+    throw new Error('newAgent: spendPerEpoch must be > 0');
+  }
+  if (input.expiryEpoch <= 0n) {
+    throw new Error('newAgent: expiryEpoch must be > 0');
+  }
   return tx.moveCall({
     target: target(packageId, 'agent', 'new'),
     arguments: [
@@ -128,6 +136,20 @@ export function recordTickPerformance(
     alphaBpsNeg: bigint;
   },
 ): TransactionResult {
+  // u64 range + single-leg invariant, mirroring strategy_registry::record_tick
+  // (EBadAlpha): exactly one of pos/neg is non-zero, both within u64.
+  const MAX_U64 = (1n << 64n) - 1n;
+  for (const [name, v] of [
+    ['alphaBpsPos', args.alphaBpsPos],
+    ['alphaBpsNeg', args.alphaBpsNeg],
+  ] as const) {
+    if (v < 0n || v > MAX_U64) {
+      throw new Error(`recordTickPerformance: ${name} out of u64 range`);
+    }
+  }
+  if (args.alphaBpsPos > 0n && args.alphaBpsNeg > 0n) {
+    throw new Error('recordTickPerformance: only one of alphaBpsPos/alphaBpsNeg may be non-zero');
+  }
   return tx.moveCall({
     target: target(packageId, 'agent', 'record_tick_performance'),
     arguments: [

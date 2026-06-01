@@ -80,5 +80,13 @@ export function target(
   module: SynapseModuleKey,
   fn: string,
 ): `${string}::${string}::${string}` {
+  // Guard the unconfigured default. The network configs ship `0x0` until the
+  // operator sets a real deployed package; without this, every moveCall would
+  // silently build `0x0::…` and fail opaquely at submit time.
+  if (!packageId || /^0x0+$/.test(packageId)) {
+    throw new Error(
+      `Synapse package ID is not configured (got "${packageId}"). Set synapseCorePackageId in your network config before building transactions.`,
+    );
+  }
   return `${packageId}::${SYNAPSE_MODULES[module]}::${fn}` as `${string}::${string}::${string}`;
 }

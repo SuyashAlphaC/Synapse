@@ -15,6 +15,7 @@ import type {
   KeyServerConfig,
 } from '@mysten/seal';
 import { SealClient, SessionKey } from '@mysten/seal';
+import { normalizeSuiAddress } from '@mysten/sui/utils';
 
 /**
  * Mysten-operated Seal **testnet** key servers (permissionless / open mode).
@@ -59,7 +60,13 @@ export function buildSynapseSealClient(args: {
  * artifacts under the same address (e.g. the report's plan id bytes).
  */
 export function sealIdForAddress(address: string, suffix: Uint8Array): string {
-  const addrBytes = hexToBytes(address);
+  // Normalize to the canonical 0x-prefixed 32-byte form first. The on-chain
+  // seal_approve compares against the sender's full 32-byte BCS address, so a
+  // short/unpadded input would produce an id that can never be decrypted.
+  const addrBytes = hexToBytes(normalizeSuiAddress(address));
+  if (addrBytes.length !== 32) {
+    throw new Error(`sealIdForAddress: address must be 32 bytes, got ${addrBytes.length}`);
+  }
   const id = new Uint8Array(addrBytes.length + suffix.length);
   id.set(addrBytes, 0);
   id.set(suffix, addrBytes.length);
