@@ -39,6 +39,7 @@ const EStrategyMismatch: u64 = 12;
 const EInsufficientBalance: u64 = 13;
 const EOpBudgetUnset: u64 = 14;
 const EOpBudgetExceeded: u64 = 15;
+const ERoyaltyCapExceeded: u64 = 16;
 
 // === Events ===
 
@@ -146,6 +147,25 @@ public struct WalrusConsent has store, drop {
 
 /// Dynamic-field key for the WalrusConsent value.
 public struct WalrusConsentKey has copy, drop, store {}
+
+// === Royalty budget (dynamic-field state) ===
+
+/// Optional per-epoch cap on strategist royalty outflow. `pay_strategist_royalty`
+/// is session-authorized and computes its payout from a caller-supplied
+/// `profit_amount`, so without a bound a compromised session key could move the
+/// entire treasury to the strategist in a single call. When the owner sets this
+/// cap, royalties are charged against an epoch-rolling counter and abort once the
+/// cap is exhausted. Stored as a dynamic field so vaults minted before this
+/// upgrade keep their struct layout; absence of the field preserves the original
+/// unbounded behavior (owners opt in, exactly like OperationalBudget).
+public struct RoyaltyBudget has store, drop {
+    cap_per_epoch: u64,
+    spent_this_epoch: u64,
+    last_epoch_seen: u64,
+}
+
+/// Dynamic-field key for the RoyaltyBudget value.
+public struct RoyaltyBudgetKey has copy, drop, store {}
 
 // === The spine struct ===
 
@@ -395,6 +415,7 @@ public fun remove_approved_package(
     ctx: &TxContext,
 ) {
     assert!(ctx.sender() == identity.owner, ENotOwner);
+    assert!(!identity.revoked, ERevoked);
     let (found, idx) = identity.approved_packages.index_of(&pkg);
     if (found) {
         identity.approved_packages.remove(idx);
@@ -454,6 +475,11 @@ public fun pay_strategist_royalty<T>(
         (((profit_amount as u128) * (royalty_bps as u128) / 10_000u128) as u64);
     if (royalty == 0) return;
 
+    // Enforce the optional owner-set per-epoch royalty cap. When configured this
+    // bounds how much value a session key can route to the strategist per epoch,
+    // closing the single-call treasury-drain path. No-op when unset (legacy).
+    charge_royalty_budget(identity, royalty, ctx);
+
     let token_type = type_name::with_defining_ids<T>();
     assert!(
         identity.treasury.contains_with_type<TypeName, balance::Balance<T>>(token_type),
@@ -487,6 +513,7 @@ public fun set_operational_cap(
     ctx: &TxContext,
 ) {
     assert!(ctx.sender() == identity.owner, ENotOwner);
+    assert!(!identity.revoked, ERevoked);
     let agent_id = identity.id.to_inner();
     let epoch_now = ctx.epoch();
     let uid = &mut identity.id;
@@ -556,6 +583,63 @@ public fun pull_operational_funds<T>(
     payout_coin
 }
 
+// === Royalty budget (owner sets per-epoch cap, session bounded by it) ===
+
+/// Owner-only: set or update the per-epoch royalty cap. Once set, every
+/// `pay_strategist_royalty` call is charged against an epoch-rolling counter and
+/// aborts with `ERoyaltyCapExceeded` when the cap is exhausted. Denominated in
+/// the raw atomic units of the royalty coin. Setting it is the owner's lever to
+/// bound treasury outflow to the strategist even if the session key is
+/// compromised.
+public fun set_royalty_cap(
+    identity: &mut AgentIdentity,
+    new_cap: u64,
+    ctx: &TxContext,
+) {
+    assert!(ctx.sender() == identity.owner, ENotOwner);
+    assert!(!identity.revoked, ERevoked);
+    let epoch_now = ctx.epoch();
+    let uid = &mut identity.id;
+    let key = RoyaltyBudgetKey {};
+    if (df::exists_(uid, key)) {
+        let bud: &mut RoyaltyBudget = df::borrow_mut(uid, key);
+        bud.cap_per_epoch = new_cap;
+    } else {
+        df::add(uid, key, RoyaltyBudget {
+            cap_per_epoch: new_cap,
+            spent_this_epoch: 0,
+            last_epoch_seen: epoch_now,
+        });
+    };
+}
+
+/// Charge `royalty` against the per-epoch royalty cap when one is configured.
+/// No-op for vaults that never set a cap (backward compatible).
+fun charge_royalty_budget(identity: &mut AgentIdentity, royalty: u64, ctx: &TxContext) {
+    let key = RoyaltyBudgetKey {};
+    if (!df::exists_(&identity.id, key)) return;
+    let epoch_now = ctx.epoch();
+    let bud: &mut RoyaltyBudget = df::borrow_mut(&mut identity.id, key);
+    if (epoch_now > bud.last_epoch_seen) {
+        bud.spent_this_epoch = 0;
+        bud.last_epoch_seen = epoch_now;
+    };
+    assert!(bud.spent_this_epoch + royalty <= bud.cap_per_epoch, ERoyaltyCapExceeded);
+    bud.spent_this_epoch = bud.spent_this_epoch + royalty;
+}
+
+/// Read the per-epoch royalty cap. Returns 0 when no cap has been set (which,
+/// per `charge_royalty_budget`, means "unbounded" — not "zero allowed").
+public fun royalty_cap(identity: &AgentIdentity): u64 {
+    let key = RoyaltyBudgetKey {};
+    if (df::exists_(&identity.id, key)) {
+        let bud: &RoyaltyBudget = df::borrow(&identity.id, key);
+        bud.cap_per_epoch
+    } else {
+        0
+    }
+}
+
 // === Walrus execution consent (owner toggles per-vault opt-in) ===
 
 /// Owner-only: opt this vault in (or out) of dynamic strategy execution
@@ -574,6 +658,7 @@ public fun set_walrus_consent(
     ctx: &TxContext,
 ) {
     assert!(ctx.sender() == identity.owner, ENotOwner);
+    assert!(!identity.revoked, ERevoked);
     let agent_id = identity.id.to_inner();
     let epoch_now = ctx.epoch();
     let uid = &mut identity.id;
@@ -632,13 +717,17 @@ public fun operational_cap(identity: &AgentIdentity): u64 {
     }
 }
 
-public fun operational_spent_this_epoch(identity: &AgentIdentity): u64 {
+/// Operational spend used in the *current* epoch. Epoch-aware: if the stored
+/// counter predates the current epoch it has effectively rolled to 0, matching
+/// what the next `pull_operational_funds` call will see.
+public fun operational_spent_this_epoch(identity: &AgentIdentity, ctx: &TxContext): u64 {
     let key = OperationalBudgetKey {};
-    if (df::exists_(&identity.id, key)) {
-        let bud: &OperationalBudget = df::borrow(&identity.id, key);
-        bud.spent_this_epoch
-    } else {
+    if (!df::exists_(&identity.id, key)) return 0;
+    let bud: &OperationalBudget = df::borrow(&identity.id, key);
+    if (ctx.epoch() > bud.last_epoch_seen) {
         0
+    } else {
+        bud.spent_this_epoch
     }
 }
 

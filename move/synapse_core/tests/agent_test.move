@@ -164,6 +164,105 @@ fun strategist_royalty_is_paid_on_realized_profit() {
     ts::end(scenario);
 }
 
+/// With an owner-set royalty cap, a session-authorized royalty payment that
+/// exceeds the per-epoch cap aborts — closing the treasury-drain path.
+#[test]
+#[expected_failure(abort_code = synapse_core::agent::ERoyaltyCapExceeded)]
+fun royalty_above_owner_cap_aborts() {
+    let mut scenario = ts::begin(HUMAN);
+    let (strategy_id, _cap_id) = publish_fixture_strategy(&mut scenario);
+
+    let mut strategy: Strategy = ts::take_shared_by_id<Strategy>(&scenario, strategy_id);
+    let mut identity =
+        mint_agent_against(&mut scenario, &mut strategy, AGENT_SESSION, 1000, 10, b"ns");
+    fund_with_sui(&mut identity, 1_000_000, &mut scenario);
+
+    // Owner bounds royalty outflow to 5_000 per epoch.
+    agent::set_royalty_cap(&mut identity, 5_000, ts::ctx(&mut scenario));
+
+    // Session tries to pay 20% of 100_000 = 20_000 royalty → exceeds 5_000 cap.
+    ts::next_tx(&mut scenario, AGENT_SESSION);
+    agent::pay_strategist_royalty<SUI>(
+        &mut identity,
+        &mut strategy,
+        100_000,
+        ts::ctx(&mut scenario),
+    );
+
+    test_utils::destroy(identity);
+    ts::return_shared(strategy);
+    ts::end(scenario);
+}
+
+/// A royalty within the owner-set cap still pays out normally.
+#[test]
+fun royalty_within_owner_cap_succeeds() {
+    let mut scenario = ts::begin(HUMAN);
+    let (strategy_id, _cap_id) = publish_fixture_strategy(&mut scenario);
+
+    let mut strategy: Strategy = ts::take_shared_by_id<Strategy>(&scenario, strategy_id);
+    let mut identity =
+        mint_agent_against(&mut scenario, &mut strategy, AGENT_SESSION, 1000, 10, b"ns");
+    fund_with_sui(&mut identity, 1_000_000, &mut scenario);
+
+    agent::set_royalty_cap(&mut identity, 50_000, ts::ctx(&mut scenario));
+    assert!(agent::royalty_cap(&identity) == 50_000, 0);
+
+    ts::next_tx(&mut scenario, AGENT_SESSION);
+    agent::pay_strategist_royalty<SUI>(
+        &mut identity,
+        &mut strategy,
+        100_000, // 20% = 20_000 royalty, within the 50_000 cap
+        ts::ctx(&mut scenario),
+    );
+    assert!(wallet::balance_of<SUI>(&identity) == 980_000, 1);
+    assert!(strategy_registry::total_royalty_paid(&strategy) == 20_000, 2);
+
+    ts::next_tx(&mut scenario, HUMAN);
+    agent::revoke(&mut identity, &mut strategy, ts::ctx(&mut scenario));
+    test_utils::destroy(identity);
+    ts::return_shared(strategy);
+    ts::end(scenario);
+}
+
+/// Reporting both alpha legs in one tick is rejected as ambiguous.
+#[test]
+#[expected_failure(abort_code = synapse_core::strategy_registry::EBadAlpha)]
+fun tick_with_both_alpha_legs_aborts() {
+    let mut scenario = ts::begin(HUMAN);
+    let (strategy_id, _cap_id) = publish_fixture_strategy(&mut scenario);
+
+    let mut strategy: Strategy = ts::take_shared_by_id<Strategy>(&scenario, strategy_id);
+    let identity =
+        mint_agent_against(&mut scenario, &mut strategy, AGENT_SESSION, 1000, 10, b"ns");
+
+    ts::next_tx(&mut scenario, AGENT_SESSION);
+    agent::record_tick_performance(&identity, &mut strategy, 100, 100, ts::ctx(&mut scenario));
+
+    test_utils::destroy(identity);
+    ts::return_shared(strategy);
+    ts::end(scenario);
+}
+
+/// Per-tick alpha above the ceiling is rejected, bounding reputation inflation.
+#[test]
+#[expected_failure(abort_code = synapse_core::strategy_registry::EBadAlpha)]
+fun tick_alpha_above_ceiling_aborts() {
+    let mut scenario = ts::begin(HUMAN);
+    let (strategy_id, _cap_id) = publish_fixture_strategy(&mut scenario);
+
+    let mut strategy: Strategy = ts::take_shared_by_id<Strategy>(&scenario, strategy_id);
+    let identity =
+        mint_agent_against(&mut scenario, &mut strategy, AGENT_SESSION, 1000, 10, b"ns");
+
+    ts::next_tx(&mut scenario, AGENT_SESSION);
+    agent::record_tick_performance(&identity, &mut strategy, 100_001, 0, ts::ctx(&mut scenario));
+
+    test_utils::destroy(identity);
+    ts::return_shared(strategy);
+    ts::end(scenario);
+}
+
 #[test]
 fun tick_performance_records_alpha_on_strategy() {
     let mut scenario = ts::begin(HUMAN);
@@ -447,21 +546,21 @@ fun operational_pull_within_cap_succeeds() {
     // Owner sets a 100k operational cap.
     agent::set_operational_cap(&mut identity, 100_000, ts::ctx(&mut scenario));
     assert!(agent::operational_cap(&identity) == 100_000, 0);
-    assert!(agent::operational_spent_this_epoch(&identity) == 0, 1);
+    assert!(agent::operational_spent_this_epoch(&identity, ts::ctx(&mut scenario)) == 0, 1);
 
     // Session pulls 40k → succeeds, cap counter advances.
     ts::next_tx(&mut scenario, AGENT_SESSION);
     let coin1 =
         agent::pull_operational_funds<SUI>(&mut identity, 40_000, ts::ctx(&mut scenario));
     assert!(coin1.value() == 40_000, 2);
-    assert!(agent::operational_spent_this_epoch(&identity) == 40_000, 3);
+    assert!(agent::operational_spent_this_epoch(&identity, ts::ctx(&mut scenario)) == 40_000, 3);
     test_utils::destroy(coin1);
 
     // Same epoch, another 30k → still within 100k cap.
     let coin2 =
         agent::pull_operational_funds<SUI>(&mut identity, 30_000, ts::ctx(&mut scenario));
     assert!(coin2.value() == 30_000, 4);
-    assert!(agent::operational_spent_this_epoch(&identity) == 70_000, 5);
+    assert!(agent::operational_spent_this_epoch(&identity, ts::ctx(&mut scenario)) == 70_000, 5);
     test_utils::destroy(coin2);
 
     // Cleanup

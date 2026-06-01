@@ -24,9 +24,17 @@ const EBadRiskProfile: u64 = 1;
 const EInactive: u64 = 2;
 const EEmptyName: u64 = 3;
 const EMaxRoyaltyExceeded: u64 = 4;
+const EBadAlpha: u64 = 5;
 
 /// Hard ceiling on the strategist's cut of perf fees: 50%.
 const MAX_ROYALTY_BPS: u16 = 5000;
+
+/// Per-tick alpha sanity ceiling (1000% in bps). Alpha is a caller-supplied
+/// signal; this ceiling caps how much any single tick can move the cumulative
+/// reputation counters, bounding griefing/self-inflation and preventing the
+/// u128 sums from being driven to absurd values. Far above any realistic
+/// single-tick treasury alpha, so it never rejects honest reporting.
+const MAX_TICK_ALPHA_BPS: u64 = 100_000;
 
 // === Risk profile constants (informational tags) ===
 
@@ -302,6 +310,13 @@ public(package) fun record_tick(
     alpha_bps_neg: u64,
     ctx: &TxContext,
 ) {
+    // Alpha is signed and reported as exactly one non-zero leg per tick. Reject
+    // both-legs-set (ambiguous sign) and cap each leg so a single tick cannot
+    // arbitrarily inflate the cumulative reputation counters.
+    assert!(alpha_bps_pos == 0 || alpha_bps_neg == 0, EBadAlpha);
+    assert!(alpha_bps_pos <= MAX_TICK_ALPHA_BPS, EBadAlpha);
+    assert!(alpha_bps_neg <= MAX_TICK_ALPHA_BPS, EBadAlpha);
+
     strategy.total_ticks_recorded = strategy.total_ticks_recorded + 1;
     strategy.cumulative_alpha_bps_pos =
         strategy.cumulative_alpha_bps_pos + (alpha_bps_pos as u128);
