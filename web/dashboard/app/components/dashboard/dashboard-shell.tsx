@@ -104,6 +104,28 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
   const navUsd = live?.navUsd ?? sampleVault.navUsd;
   const aumFeeAccruedToday = (navUsd * sampleVault.managementFeeBps) / 10_000 / 365;
 
+  // When the user navigated to a specific vault (`/dashboard/[vaultId]`) and it
+  // failed to load, do NOT fall back to the SAMPLE_VAULT placeholder numbers —
+  // that presents fabricated treasury/holdings as if they were this vault's.
+  // The sample preview is only for the no-vault landing state.
+  if (forcedVaultId && liveQuery.isError && !live) {
+    return (
+      <>
+        <DashboardToolbar />
+        <div
+          className="mt-6 rounded-md border-2 border-ink bg-paper-strong px-6 py-8 shadow-[2px_2px_0_0_var(--ink)]"
+          style={{ borderColor: 'var(--accent-orange)' }}
+        >
+          <h2 className="text-lg font-semibold">Vault not found</h2>
+          <p className="mt-2 text-sm text-ink-mute">
+            Couldn&apos;t load vault <code className="break-all">{forcedVaultId}</code> from the
+            chain. Check the ID is correct and that it was minted on this network, then retry.
+          </p>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <DashboardToolbar />
