@@ -493,7 +493,14 @@ export class VaultRuntime {
     // alpha means the strategy outperformed a do-nothing baseline; that's
     // what we record on-chain and what we pay royalty on.
     const alpha = this.#computeAlpha(holdings, market.prices);
-    const royaltyMist = this.#computeRoyaltyMist(alpha, market.prices, activeStrategy);
+    const royaltyMistRaw = this.#computeRoyaltyMist(alpha, market.prices, activeStrategy);
+    // Royalty is paid in SUI. If the vault doesn't hold enough SUI, paying it
+    // would abort (EInsufficientBalance) and revert the WHOLE tick — losing the
+    // record_tick + attestation for a USDC-only vault. Skip the royalty this
+    // tick instead; the alpha is still recorded and the strategist is paid on a
+    // later tick once SUI is available.
+    const suiBalance = holdings.find((h) => h.coinTypeTag === '0x2::sui::SUI')?.amount ?? 0n;
+    const royaltyMist = royaltyMistRaw > 0n && suiBalance >= royaltyMistRaw ? royaltyMistRaw : 0n;
 
     if (decision.kind === 'noop') {
       const receipt = await this.#executeNoop(
