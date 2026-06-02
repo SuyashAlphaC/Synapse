@@ -65,6 +65,14 @@ export interface RuntimeConfig {
    * through a verbatim-suffix proxy keeps signatures valid.
    */
   memwalRelayerUrlOverride?: string;
+  /**
+   * Nautilus attested execution. When BOTH are set, the vault runs in attested
+   * mode: the runtime asks the enclave at `enclaveUrl` for a signed decision and
+   * gates the rebalance PTB on `decision_attestation::attest_decision` against
+   * the `Enclave` object `enclaveObjectId`. Unset → unattested (local strategy).
+   */
+  enclaveUrl?: string;
+  enclaveObjectId?: string;
   /** Tick interval in milliseconds. Default 600_000 (10 min). */
   tickIntervalMs?: number;
   /** Max consecutive tick failures before exit. Default 5. */
@@ -244,6 +252,8 @@ export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig
       : {}),
     ...(env.SYNAPSE_QUOTE_TYPE ? { quoteTypeTagOverride: env.SYNAPSE_QUOTE_TYPE } : {}),
     ...(env.SYNAPSE_POOL_ID ? { poolIdOverride: env.SYNAPSE_POOL_ID } : {}),
+    ...(env.SYNAPSE_ENCLAVE_URL ? { enclaveUrl: env.SYNAPSE_ENCLAVE_URL } : {}),
+    ...(env.SYNAPSE_ENCLAVE_OBJECT_ID ? { enclaveObjectId: env.SYNAPSE_ENCLAVE_OBJECT_ID } : {}),
     ...(env.SYNAPSE_REFUEL_THRESHOLD_MIST
       ? { refuelThresholdMist: BigInt(env.SYNAPSE_REFUEL_THRESHOLD_MIST) }
       : {}),

@@ -70,6 +70,7 @@ export const SYNAPSE_MODULES = {
   attestation: 'attestation',
   deepbookAdapter: 'deepbook_adapter',
   strategyRegistry: 'strategy_registry',
+  decisionAttestation: 'decision_attestation',
 } as const;
 
 export type SynapseModuleKey = keyof typeof SYNAPSE_MODULES;

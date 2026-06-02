@@ -59,8 +59,20 @@ import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import type { SuiTransactionBlockResponse } from '@mysten/sui/jsonRpc';
 import { Transaction } from '@mysten/sui/transactions';
 import { ActionKind, publishArtifactCall, target } from '@synapse-core/client';
-import type { AuditReport, ExecutionReceipt, HoldingSnapshot, StrategyInput } from '../types.js';
+import type {
+  AuditReport,
+  ExecutionReceipt,
+  HoldingSnapshot,
+  StrategyInput,
+  StrategyDecision,
+} from '../types.js';
 import { buildRebalancePTB, makeExecutedTrade } from '../executor.js';
+import { conservativeRebalancer } from '../strategies/conservative-rebalancer.js';
+import {
+  requestAttestedDecision,
+  hexToBytes,
+  type EnclaveAdvisorInput,
+} from './enclave-client.js';
 import { renderReport } from '../report.js';
 import { loadAgentState } from './state.js';
 import { loadMarketSnapshot, requiredPoolsForStrategy } from './market.js';
@@ -72,13 +84,22 @@ import {
   rememberStrategyOutcome,
 } from './memory.js';
 import { uploadReportBlob, parseArtifactSlot, type SealUploadOptions } from './publisher.js';
-import { deepbookSwap, DEEPBOOK_PACKAGE_ID_TESTNET } from './deepbook.js';
+import {
+  deepbookSwap,
+  DEEPBOOK_PACKAGE_ID_TESTNET,
+  SUI_TYPE_TAG_TESTNET,
+  USDC_TYPE_TAG_TESTNET,
+  SUI_USDC_POOL_ID_TESTNET,
+} from './deepbook.js';
 import { loadSessionKeypair, loadMemwalDelegateFromKeyFile } from './keypair.js';
 import { createLogger, type VaultLogger } from './logger.js';
 import type { RuntimeConfig } from './config.js';
 import { resolveStrategyWithWalrus } from './strategy-resolver.js';
 import { sendAlert } from './alerts.js';
 import type { Strategy } from '../types.js';
+
+/** The attestation block accepted by `buildRebalancePTB` (Nautilus path). */
+type RebalanceAttestation = NonNullable<Parameters<typeof buildRebalancePTB>[0]['attestation']>;
 
 export type { RuntimeConfig } from './config.js';
 
@@ -469,7 +490,21 @@ export class VaultRuntime {
         spendPerEpochUsd: spendCapUsd(agent.identity.spendPerEpoch, holdings),
       },
     };
-    const decision = await activeStrategy.evaluate(input);
+    // Attested execution (Nautilus): when an enclave is configured, the DECISION
+    // comes from the attested enclave, not the local strategy. The enclave's
+    // signed target weight drives the deterministic rebalancer, and its signature
+    // is carried into the rebalance PTB to gate the swap on-chain. An attested
+    // vault that can't reach its enclave SKIPS the tick — it must never fall back
+    // to an unattested trade.
+    let decision: StrategyDecision;
+    let attestation: RebalanceAttestation | undefined;
+    if (this.#config.enclaveUrl && this.#config.enclaveObjectId) {
+      const result = await this.#attestedDecision(input, overrides);
+      decision = result.decision;
+      attestation = result.attestation;
+    } else {
+      decision = await activeStrategy.evaluate(input);
+    }
     const report = renderReport({
       vaultId: this.#config.agentId,
       strategyId: activeStrategy.id,
@@ -552,6 +587,7 @@ export class VaultRuntime {
       swap: deepbookSwap,
       sealEncrypted: Boolean(sealOpts),
       ...(upload ? { blobSha256: upload.sha256, blobSizeBytes: upload.sizeBytes } : {}),
+      ...(attestation ? { attestation } : {}),
     });
     // Record performance for the on-chain reputation registry. Real alpha
     // (in bps, split into pos/neg buckets) computed against last tick's
@@ -925,6 +961,84 @@ export class VaultRuntime {
    * configured (`SYNAPSE_SEAL_PACKAGE_ID` unset). Off by default, so the
    * browser path and existing operators upload plaintext unchanged.
    */
+  /**
+   * Attested-execution decision path. Calls the enclave for a signed target
+   * weight, drives the deterministic rebalancer with it, and returns the
+   * attestation to gate the rebalance PTB on-chain. Throws (→ skipped tick) if
+   * the enclave is unreachable — an attested vault never trades unattested.
+   */
+  async #attestedDecision(
+    input: StrategyInput,
+    overrides: { quoteTypeTag?: string; quoteSymbol?: string; poolId?: string },
+  ): Promise<{ decision: StrategyDecision; attestation: RebalanceAttestation }> {
+    const baseTypeTag = SUI_TYPE_TAG_TESTNET;
+    const baseSymbol = 'SUI';
+    const quoteTypeTag = overrides.quoteTypeTag ?? USDC_TYPE_TAG_TESTNET;
+    const quoteSymbol = overrides.quoteSymbol ?? 'USDC';
+    const poolId = overrides.poolId ?? SUI_USDC_POOL_ID_TESTNET;
+
+    const base = input.holdings.find((h) => h.coinTypeTag === baseTypeTag);
+    const quote = input.holdings.find((h) => h.coinTypeTag === quoteTypeTag);
+    const totalUsd = (base?.valueUsd ?? 0) + (quote?.valueUsd ?? 0);
+    const advisorInput: EnclaveAdvisorInput = {
+      baseSymbol,
+      quoteSymbol,
+      baseWeight: totalUsd > 0 ? (base?.valueUsd ?? 0) / totalUsd : 0,
+      basePriceUsd: base?.priceUsd ?? input.market.prices[baseSymbol] ?? 0,
+      quotePriceUsd: quote?.priceUsd ?? input.market.prices[quoteSymbol] ?? 1,
+      navUsd: input.navUsd,
+      epoch: Number(input.currentEpoch),
+      memoryFacts: input.memory.facts,
+    };
+
+    const dec = await requestAttestedDecision({
+      enclaveUrl: this.#config.enclaveUrl!,
+      vaultId: this.#config.agentId,
+      epoch: input.currentEpoch,
+      input: advisorInput,
+    });
+
+    const targetBaseWeight = Math.max(0, Math.min(1, dec.targetWeightMilli / 1000));
+    const rebal = conservativeRebalancer({
+      baseTypeTag,
+      baseSymbol,
+      quoteTypeTag,
+      quoteSymbol,
+      targetBaseWeight,
+      driftThreshold: 0.05,
+      poolId,
+      slippageTolerance: 0.005,
+    });
+    const base_decision = await rebal.evaluate(input);
+    const attestSignals = {
+      attested: true,
+      enclaveTargetWeight: targetBaseWeight,
+      enclaveConfidence: dec.confidence,
+    };
+    const decision: StrategyDecision =
+      base_decision.kind === 'rebalance'
+        ? {
+            ...base_decision,
+            rationaleMarkdown: `### Attested AI decision (Nautilus)\n\n${dec.rationale}\n\n${base_decision.rationaleMarkdown}`,
+            signals: { ...base_decision.signals, ...attestSignals },
+          }
+        : {
+            ...base_decision,
+            rationale: `Attested AI: ${dec.rationale} — ${base_decision.rationale}`,
+            signals: { ...(base_decision.signals ?? {}), ...attestSignals },
+          };
+
+    const attestation: RebalanceAttestation = {
+      enclaveObjectId: this.#config.enclaveObjectId!,
+      epoch: input.currentEpoch,
+      targetWeightMilli: dec.targetWeightMilli,
+      inputsHash: hexToBytes(dec.inputsHashHex),
+      timestampMs: BigInt(dec.timestampMs),
+      signature: hexToBytes(dec.signatureHex),
+    };
+    return { decision, attestation };
+  }
+
   #sealOptions(): SealUploadOptions | undefined {
     if (!this.#config.sealPackageId) return undefined;
     return {

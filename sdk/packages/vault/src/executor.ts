@@ -77,6 +77,20 @@ export interface BuildRebalancePTBArgs {
    */
   blobSha256?: Uint8Array;
   blobSizeBytes?: number;
+  /**
+   * Optional Nautilus attestation. When present, a
+   * `decision_attestation::attest_decision` call is prepended to the PTB — the
+   * whole transaction (including the swap) aborts unless the registered enclave
+   * signed exactly this decision. Only set for vaults running attested execution.
+   */
+  attestation?: {
+    enclaveObjectId: string;
+    epoch: bigint;
+    targetWeightMilli: number;
+    inputsHash: number[];
+    timestampMs: bigint;
+    signature: number[];
+  };
 }
 
 export interface BuildRebalancePTBResult {
@@ -92,6 +106,25 @@ export function buildRebalancePTB(args: BuildRebalancePTBArgs): BuildRebalancePT
   const { tx, synapsePackageId, vaultId, plan, report, reportWalrusBlobId, deepbookPkg, swap } =
     args;
   const sealEncrypted = args.sealEncrypted ?? false;
+
+  // 0. Attested execution (Nautilus): gate the entire PTB on a valid enclave
+  //    signature over this decision. Placed FIRST so the swap can't execute on a
+  //    forged/tampered decision — the Move VM aborts the whole transaction.
+  if (args.attestation) {
+    const a = args.attestation;
+    tx.moveCall({
+      target: target(synapsePackageId, 'decisionAttestation', 'attest_decision'),
+      arguments: [
+        tx.object(a.enclaveObjectId),
+        tx.pure.address(vaultId),
+        tx.pure.u64(a.epoch),
+        tx.pure.u64(a.targetWeightMilli),
+        tx.pure.vector('u8', a.inputsHash),
+        tx.pure.u64(a.timestampMs),
+        tx.pure.vector('u8', a.signature),
+      ],
+    });
+  }
 
   for (const trade of plan.trades) {
     // 1. Authorize the swap (pre-flight policy gate + event)
