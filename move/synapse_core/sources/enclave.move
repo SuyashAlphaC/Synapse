@@ -225,3 +225,10 @@ public fun new_intent_message_for_testing<P: drop>(
 ): IntentMessage<P> {
     create_intent_message(intent, timestamp_ms, payload)
 }
+
+#[test_only]
+/// Construct an `Enclave<T>` with a known public key for crypto contract tests
+/// (bypasses attestation — verifies the secp256k1 path against a real fixture).
+public fun new_enclave_for_testing<T>(pk: vector<u8>, ctx: &mut TxContext): Enclave<T> {
+    Enclave<T> { id: object::new(ctx), pk, config_version: 0, owner: ctx.sender() }
+}

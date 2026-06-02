@@ -172,3 +172,37 @@ fun make_intent(
         DecisionPayload { vault_id, epoch, target_weight_milli, inputs_hash },
     )
 }
+
+// Cross-stack crypto contract: a signature produced by the Node enclave
+// (enclave/gen_fixture.mjs, deterministic key 0x01..0x20) must verify on-chain.
+// If the BCS layout or hashing ever drifts between Node and Move, this fails.
+#[test]
+fun verifies_node_signed_decision() {
+    let mut ctx = tx_context::dummy();
+    let pk = x"0284bf7562262bbd6940085748f3be6afa52ae317155181ece31b66351ccffa4b0";
+    let enclave = enclave::new_enclave_for_testing<DECISION_ATTESTATION>(pk, &mut ctx);
+    let inputs_hash = x"f43c09c97259c438778fbff22b4a9941370439e1fb96a35682d0e3be68788da8";
+    let signature = x"cde98f205ae4cef4da644f0b9a77739ec8ffbde8a4c60da071ba33596f6ee4f3656bd50e37b15efd5f02062b6d40a03b299b4281c08f4ef24d109b0b333f7ce6";
+    let ok = verify_decision(
+        &enclave,
+        @0x1234,
+        100,
+        500,
+        inputs_hash,
+        1_744_038_900_000,
+        &signature,
+    );
+    assert!(ok, 0);
+    // A tampered weight must NOT verify.
+    let bad = verify_decision(
+        &enclave,
+        @0x1234,
+        100,
+        501,
+        inputs_hash,
+        1_744_038_900_000,
+        &signature,
+    );
+    assert!(!bad, 1);
+    enclave::destroy(enclave);
+}

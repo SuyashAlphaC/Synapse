@@ -1,0 +1,19 @@
+{
+  "name": "synapse-decision-enclave",
+  "version": "0.1.0",
+  "description": "Synapse AI decision enclave — runs the advisor inside an attested AWS Nitro enclave (Marlin Oyster) and signs each decision with a secp256k1 key bound to the enclave's PCR measurement.",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@mysten/bcs": "^1.9.2",
+    "@noble/secp256k1": "^3.0.0",
+    "@noble/hashes": "^2.0.1",
+    "express": "^5.2.1"
+  }
+}
