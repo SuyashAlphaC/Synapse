@@ -96,6 +96,14 @@ import { createLogger, type VaultLogger } from './logger.js';
 import type { RuntimeConfig } from './config.js';
 import { resolveStrategyWithWalrus } from './strategy-resolver.js';
 import { EnvSecretsProvider, type SecretsProvider } from './secrets.js';
+import {
+  consumeSignals,
+  emitSignal,
+  messageDigest,
+  recordReceivePTB,
+  recordSendPTB,
+  type MessagingLike,
+} from './messaging.js';
 import { sendAlert } from './alerts.js';
 import type { Strategy } from '../types.js';
 
@@ -172,6 +180,13 @@ export interface VaultRuntimeDeps {
   client?: SuiJsonRpcClient;
   /** Replace the auto-constructed logger. Useful to silence test output. */
   logger?: VaultLogger;
+  /**
+   * Sui Stack Messaging client for cross-agent signalling. Injected (not built
+   * here) because `@mysten/messaging` pins `@mysten/sui` 1.x, conflicting with
+   * this package's 2.x — it is constructed in the isolated messaging package.
+   * When absent, cross-agent consume/emit is disabled (graceful).
+   */
+  messagingClient?: MessagingLike;
 }
 
 export class VaultRuntime {
@@ -179,6 +194,7 @@ export class VaultRuntime {
   readonly #client: SuiJsonRpcClient;
   readonly #logger: VaultLogger;
   readonly #secrets: SecretsProvider;
+  readonly #messagingClient: MessagingLike | null;
   #stopping = false;
   #loop: Promise<void> | null = null;
   #activeTick: Promise<ExecutionReceipt | null> | null = null;
@@ -196,6 +212,7 @@ export class VaultRuntime {
       });
     this.#logger = deps.logger ?? createLogger();
     this.#secrets = config.secretsProvider ?? new EnvSecretsProvider();
+    this.#messagingClient = deps.messagingClient ?? null;
   }
 
   start(): void {
@@ -499,6 +516,50 @@ export class VaultRuntime {
         spendPerEpochUsd: spendCapUsd(agent.identity.spendPerEpoch, holdings),
       },
     };
+
+    // --- Cross-agent consume: read peers' signals from the on-chain inbox
+    // channel and inject them as memory facts so the strategy/enclave sees them.
+    // Persisted channel ids come from the vault's on-chain state; the cursor
+    // persists as a MemWal counter. All failures degrade to no peer facts.
+    const inboxId = agent.identity.messagingInbox ?? null;
+    const outboxId = agent.identity.messagingOutbox ?? null;
+    let consumedCursor: bigint | null = null;
+    if (this.#messagingClient && inboxId) {
+      const lastCursorNum = input.memory.counters['msgCursor'];
+      const consumed = await consumeSignals({
+        client: this.#messagingClient,
+        inboxChannelId: inboxId,
+        userAddress: signer.toSuiAddress(),
+        lastCursor: typeof lastCursorNum === 'number' ? BigInt(lastCursorNum) : null,
+      });
+      consumedCursor = consumed.newCursor;
+      if (consumed.facts.length > 0) {
+        input.memory.facts = [...input.memory.facts, ...consumed.facts];
+        this.#logger.info(
+          { count: consumed.facts.length, inbox: inboxId },
+          'consumed cross-agent signals into strategy memory',
+        );
+        try {
+          const recvTx = new Transaction();
+          for (const fact of consumed.facts) {
+            recordReceivePTB(
+              recvTx,
+              this.#config.packageId,
+              this.#config.agentId,
+              inboxId,
+              await messageDigest(fact),
+            );
+          }
+          await signAndExecuteWithRetry(this.#client, { transaction: recvTx, signer });
+        } catch (err) {
+          this.#logger.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            'record_receive failed; signals still consumed in-memory',
+          );
+        }
+      }
+    }
+
     // Attested execution (Nautilus): when an enclave is configured, the DECISION
     // comes from the attested enclave, not the local strategy. The enclave's
     // signed target weight drives the deterministic rebalancer, and its signature
@@ -527,10 +588,22 @@ export class VaultRuntime {
     // facts) it wants the runtime to persist. The strategy stays a pure
     // function of (input, decision); the runtime owns the side effect of
     // writing to MemWal.
-    const memoryWrite =
+    const strategyMemoryWrite =
       typeof activeStrategy.prepareMemoryWrite === 'function'
         ? await activeStrategy.prepareMemoryWrite({ input, decision })
         : null;
+    // Fold the advanced message cursor into the memory write so the next tick
+    // resumes after the messages we just consumed (never reprocessed).
+    const memoryWrite =
+      consumedCursor !== null
+        ? {
+            ...(strategyMemoryWrite ?? {}),
+            counters: {
+              ...(strategyMemoryWrite?.counters ?? {}),
+              msgCursor: Number(consumedCursor),
+            },
+          }
+        : strategyMemoryWrite;
 
     // Compute realized alpha vs hold using last tick's snapshot. Positive
     // alpha means the strategy outperformed a do-nothing baseline; that's
@@ -632,6 +705,40 @@ export class VaultRuntime {
       options: { showEvents: true, showEffects: true },
     });
     await this.#client.waitForTransaction({ digest: result.digest });
+
+    // --- Cross-agent emit: broadcast this rebalance to peers as a Seal-encrypted,
+    // Walrus-stored message on the outbox channel. Only fires on rebalance (noops
+    // stay silent → bounds WAL cost). Degrades to no broadcast on failure.
+    if (this.#messagingClient && outboxId) {
+      try {
+        const message = `signal @${currentEpoch}: ${decision.summary}`;
+        const emitted = await emitSignal({
+          client: this.#messagingClient,
+          outboxChannelId: outboxId,
+          userAddress: signer.toSuiAddress(),
+          signer,
+          message,
+        });
+        if (emitted) {
+          this.#logger.info({ digest: emitted.digest, outbox: outboxId }, 'emitted cross-agent signal');
+          const sendTx = new Transaction();
+          recordSendPTB(
+            sendTx,
+            this.#config.packageId,
+            this.#config.agentId,
+            outboxId,
+            await messageDigest(message),
+          );
+          await signAndExecuteWithRetry(this.#client, { transaction: sendTx, signer });
+        }
+      } catch (err) {
+        this.#logger.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          'cross-agent emit failed; rebalance already landed',
+        );
+      }
+    }
+
     const trades = parseExecutedTrades(result, decision.trades);
     const receipt: ExecutionReceipt = {
       planId: decision.planId,
