@@ -1,0 +1,16 @@
+# Oyster CVM deployment descriptor for the Synapse decision enclave.
+# Deployed with: oyster-cvm deploy --docker-compose ./docker-compose.yml ...
+# The image digest must be pinned (pushed to a registry) so the PCR measurement
+# is reproducible and matches what is registered on-chain.
+services:
+  synapse-decision-enclave:
+    # Replace with your pushed, digest-pinned image, e.g.
+    #   docker.io/<you>/synapse-decision-enclave@sha256:<digest>
+    image: synapse-decision-enclave:latest
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      # ANTHROPIC_API_KEY is injected as an Oyster secret — it lives only inside
+      # the enclave, never on the host. This is the key-custody upgrade.
+      - SIGNING_KEY_PATH=/app/signing-key
+    init: true
