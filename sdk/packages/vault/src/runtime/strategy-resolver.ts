@@ -101,6 +101,8 @@ export interface BuildStrategyOverrides {
   quoteSymbol?: string;
   /** DeepBookV3 pool the strategy should route through. */
   poolId?: string;
+  /** Per-vault Anthropic key for the llm-advisor; falls back to env when unset. */
+  apiKey?: string;
 }
 
 export function buildStrategy(
@@ -154,6 +156,7 @@ export function buildStrategy(
         poolId: commonPair.poolId,
         slippageTolerance: 0.005,
         driftThreshold: 0.05,
+        ...(overrides.apiKey ? { apiKey: overrides.apiKey } : {}),
       });
   }
 }

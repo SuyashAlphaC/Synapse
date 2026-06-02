@@ -95,6 +95,7 @@ import { loadSessionKeypair, loadMemwalDelegateFromKeyFile } from './keypair.js'
 import { createLogger, type VaultLogger } from './logger.js';
 import type { RuntimeConfig } from './config.js';
 import { resolveStrategyWithWalrus } from './strategy-resolver.js';
+import { EnvSecretsProvider, type SecretsProvider } from './secrets.js';
 import { sendAlert } from './alerts.js';
 import type { Strategy } from '../types.js';
 
@@ -177,6 +178,7 @@ export class VaultRuntime {
   readonly #config: RuntimeConfig;
   readonly #client: SuiJsonRpcClient;
   readonly #logger: VaultLogger;
+  readonly #secrets: SecretsProvider;
   #stopping = false;
   #loop: Promise<void> | null = null;
   #activeTick: Promise<ExecutionReceipt | null> | null = null;
@@ -193,6 +195,7 @@ export class VaultRuntime {
         network: config.walrusNetwork === 'mainnet' ? 'mainnet' : 'testnet',
       });
     this.#logger = deps.logger ?? createLogger();
+    this.#secrets = config.secretsProvider ?? new EnvSecretsProvider();
   }
 
   start(): void {
@@ -331,7 +334,7 @@ export class VaultRuntime {
         h.coinTypeTag !== '0x2::sui::SUI' &&
         !h.coinTypeTag.endsWith('::sui::SUI'),
     );
-    const overrides: { quoteTypeTag?: string; quoteSymbol?: string; poolId?: string } = {};
+    const overrides: { quoteTypeTag?: string; quoteSymbol?: string; poolId?: string; apiKey?: string } = {};
     if (this.#config.quoteTypeTagOverride) {
       overrides.quoteTypeTag = this.#config.quoteTypeTagOverride;
     } else if (detectedQuote) {
@@ -339,6 +342,12 @@ export class VaultRuntime {
       overrides.quoteSymbol = detectedQuote.symbol;
     }
     if (this.#config.poolIdOverride) overrides.poolId = this.#config.poolIdOverride;
+    // Per-vault Anthropic key (model A): resolve from the configured secrets
+    // provider, else the runtime's own ANTHROPIC_API_KEY. Threaded explicitly
+    // into the llm-advisor build instead of being read implicitly in-strategy.
+    const anthropicKey =
+      (await this.#secrets.get('anthropic_api_key')) ?? process.env.ANTHROPIC_API_KEY ?? null;
+    if (anthropicKey) overrides.apiKey = anthropicKey;
 
     // Dispatch to the correct Strategy implementation based on the vault's
     // on-chain `strategy_id`. Tries (1) hardcoded slug map, (2) Walrus

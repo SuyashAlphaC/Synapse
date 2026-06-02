@@ -13,7 +13,7 @@
  * same interface — it does not change any call site.
  */
 
-export type SecretName = 'session_key' | 'memwal_delegate';
+export type SecretName = 'session_key' | 'memwal_delegate' | 'anthropic_api_key';
 
 export interface SecretsProvider {
   /** Resolve a named secret, or `null` when it isn't configured. */
@@ -24,6 +24,7 @@ export interface SecretsProvider {
 const ENV_VAR_BY_SECRET: Record<SecretName, string> = {
   session_key: 'SYNAPSE_SESSION_KEY',
   memwal_delegate: 'MEMWAL_DELEGATE_KEY',
+  anthropic_api_key: 'ANTHROPIC_API_KEY',
 };
 
 /** Resolves secrets from environment variables (local/dev default). */
@@ -45,6 +46,7 @@ export class EnvSecretsProvider implements SecretsProvider {
 const FILE_NAME_BY_SECRET: Record<SecretName, string> = {
   session_key: 'session-key',
   memwal_delegate: 'memwal-delegate',
+  anthropic_api_key: 'anthropic-api-key',
 };
 
 /**

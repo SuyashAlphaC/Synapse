@@ -1,5 +1,6 @@
 import { getJsonRpcFullnodeUrl } from '@mysten/sui/jsonRpc';
 import type { Strategy } from '../types.js';
+import type { SecretsProvider } from './secrets.js';
 import { conservativeRebalancer } from '../strategies/conservative-rebalancer.js';
 import {
   DEEPBOOK_PACKAGE_ID_TESTNET,
@@ -73,6 +74,8 @@ export interface RuntimeConfig {
    */
   enclaveUrl?: string;
   enclaveObjectId?: string;
+  /** Pluggable secret source; defaults to env. Backs the per-vault API key. */
+  secretsProvider?: SecretsProvider;
   /** Tick interval in milliseconds. Default 600_000 (10 min). */
   tickIntervalMs?: number;
   /** Max consecutive tick failures before exit. Default 5. */
