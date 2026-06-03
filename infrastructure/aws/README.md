@@ -79,15 +79,39 @@ for images, IAM roles). You only do this once per account+region.
    ```bash
    npx cdk deploy \
      -c agentId=<your-vault-id> \
-     -c packageId=0x5da36d892956a4659415e245126a3964dd5aa6cf19ec2fdf6332bf828a4c58ed \
+     -c packageId=0x0240a49e849d2349a9ee403e6e08d897ce97c82dd0a1a9d9ebdb9ea4357de086 \
      -c sessionSecretName=synapse/vault/<short>/session-key \
      -c memwalSecretName=synapse/vault/<short>/memwal-delegate \
      -c tickIntervalMinutes=10
    ```
 
-   The package ID above is the current v2 (with operational budget +
-   auto-refuel). Confirm the active value in
-   `web/dashboard/lib/synapse-config.ts` if you're on a newer rev.
+   The package ID above is the current **v5** (enclave attestation + royalty
+   cap). Confirm the active value in `web/dashboard/lib/synapse-config.ts`.
+
+   **Attested AI vault (the full product flow).** For a vault hiring the
+   `llm-advisor` with `requires_attestation` on, also push the Anthropic key and
+   pass the enclave config so the Fargate task calls the enclave + attests on
+   every tick:
+
+   ```bash
+   # push the Anthropic key too (4th arg)
+   ./scripts/push-secrets.sh <vault-id> ~/keys/<vault>.key ~/keys/<vault>.memwal ~/keys/anthropic.txt
+
+   npx cdk deploy \
+     -c agentId=<your-vault-id> \
+     -c packageId=0x0240a49e…de086 \
+     -c packageHistory=0x0240a49e…086,0x85215709…1534,0xd849b7b2…f01,0x5da36d89…8ed,0x7b3f59e4…a67c \
+     -c sessionSecretName=synapse/vault/<short>/session-key \
+     -c memwalSecretName=synapse/vault/<short>/memwal-delegate \
+     -c anthropicSecretName=synapse/vault/<short>/anthropic-key \
+     -c enclaveUrl=https://<your-oyster-or-nitro-enclave> \
+     -c enclaveObjectId=0x361b7a26380d5312247ff0afca78086c996ecc159bd30ca3b0a5ee4bf949ab9f \
+     -c tickIntervalMinutes=10
+   ```
+
+   The enclave must be reachable from Fargate (the Oyster/Nitro enclave has a
+   public URL). The Anthropic key lives only in Secrets Manager + the enclave,
+   never in the task definition.
 
    First deploy takes ~5 minutes (Docker build + ECR push + Fargate
    provisioning). Subsequent deploys are faster.

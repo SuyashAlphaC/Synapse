@@ -33,6 +33,13 @@ const memwalSecretName =
   app.node.tryGetContext('memwalSecretName') ??
   process.env.MEMWAL_SECRET_NAME ??
   null;
+const packageHistory =
+  app.node.tryGetContext('packageHistory') ?? process.env.SYNAPSE_PACKAGE_HISTORY ?? null;
+const anthropicSecretName =
+  app.node.tryGetContext('anthropicSecretName') ?? process.env.ANTHROPIC_SECRET_NAME ?? null;
+const enclaveUrl = app.node.tryGetContext('enclaveUrl') ?? process.env.SYNAPSE_ENCLAVE_URL ?? null;
+const enclaveObjectId =
+  app.node.tryGetContext('enclaveObjectId') ?? process.env.SYNAPSE_ENCLAVE_OBJECT_ID ?? null;
 
 if (!agentId || !packageId) {
   throw new Error(
@@ -51,4 +58,8 @@ new VaultRuntimeStack(app, `SynapseVaultRuntime${suffix}`, {
   tickIntervalMinutes,
   sessionSecretName,
   memwalSecretName,
+  packageHistory,
+  anthropicSecretName,
+  enclaveUrl,
+  enclaveObjectId,
 });

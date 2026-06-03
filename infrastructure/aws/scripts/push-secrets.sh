@@ -22,15 +22,17 @@ set -euo pipefail
 VAULT_ID="${1:-}"
 SESSION_FILE="${2:-}"
 MEMWAL_FILE="${3:-}"
+ANTHROPIC_FILE="${4:-}"   # optional: text file with the Anthropic API key (one line)
 
 if [[ -z "$VAULT_ID" || -z "$SESSION_FILE" ]]; then
-  echo "usage: $0 <vault-id> <session-key-file> [memwal-delegate-key-file]" >&2
+  echo "usage: $0 <vault-id> <session-key-file> [memwal-delegate-key-file] [anthropic-key-file]" >&2
   exit 1
 fi
 
 SHORT="${VAULT_ID:2:8}"
 SESSION_NAME="synapse/vault/$SHORT/session-key"
 MEMWAL_NAME="synapse/vault/$SHORT/memwal-delegate"
+ANTHROPIC_NAME="synapse/vault/$SHORT/anthropic-key"
 
 # Reduce the .key JSON to the secretBase64 the runtime expects.
 SECRET_PLAIN="$(jq -r '.secretBase64' "$SESSION_FILE")"
@@ -72,6 +74,26 @@ if [[ -n "$MEMWAL_FILE" ]]; then
   echo "  ✓ memwal secret ready"
 fi
 
+if [[ -n "$ANTHROPIC_FILE" ]]; then
+  if [[ ! -f "$ANTHROPIC_FILE" ]]; then
+    echo "ERROR: $ANTHROPIC_FILE not found" >&2
+    exit 4
+  fi
+  ANTHROPIC_PLAIN="$(tr -d '[:space:]' < "$ANTHROPIC_FILE")"
+  echo "→ pushing Anthropic key to Secrets Manager ($ANTHROPIC_NAME)"
+  if aws secretsmanager describe-secret --secret-id "$ANTHROPIC_NAME" >/dev/null 2>&1; then
+    aws secretsmanager put-secret-value \
+      --secret-id "$ANTHROPIC_NAME" \
+      --secret-string "$ANTHROPIC_PLAIN" >/dev/null
+  else
+    aws secretsmanager create-secret \
+      --name "$ANTHROPIC_NAME" \
+      --description "Synapse Vault Anthropic API key for $VAULT_ID" \
+      --secret-string "$ANTHROPIC_PLAIN" >/dev/null
+  fi
+  echo "  ✓ anthropic secret ready"
+fi
+
 echo
 echo "Next: cd infrastructure/aws && cdk deploy \\"
 echo "  -c agentId=$VAULT_ID \\"
@@ -80,4 +102,8 @@ echo "  -c sessionSecretName=$SESSION_NAME \\"
 if [[ -n "$MEMWAL_FILE" ]]; then
   echo "  -c memwalSecretName=$MEMWAL_NAME \\"
 fi
+if [[ -n "$ANTHROPIC_FILE" ]]; then
+  echo "  -c anthropicSecretName=$ANTHROPIC_NAME \\"
+fi
+echo "  # attested vault: add -c enclaveUrl=… -c enclaveObjectId=…"
 echo "  -c tickIntervalMinutes=10"

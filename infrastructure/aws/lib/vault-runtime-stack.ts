@@ -43,6 +43,14 @@ export interface VaultRuntimeStackProps extends StackProps {
   sessionSecretName: string | null;
   /** Name of the Secrets Manager secret holding the MemWal delegate key hex. Optional. */
   memwalSecretName: string | null;
+  /** Every historical package id, newest first (comma-separated). Optional; defaults to packageId. */
+  packageHistory?: string | null;
+  /** Secret holding the Anthropic API key — only for vaults hiring the llm-advisor. Optional. */
+  anthropicSecretName?: string | null;
+  /** Nautilus enclave URL — only for attested vaults (requires_attestation). Optional. */
+  enclaveUrl?: string | null;
+  /** On-chain `Enclave` object id — only for attested vaults. Optional. */
+  enclaveObjectId?: string | null;
 }
 
 export class VaultRuntimeStack extends Stack {
@@ -87,6 +95,13 @@ export class VaultRuntimeStack extends Stack {
           props.memwalSecretName,
         )
       : null;
+    const anthropicSecret = props.anthropicSecretName
+      ? secretsmanager.Secret.fromSecretNameV2(
+          this,
+          'AnthropicSecret',
+          props.anthropicSecretName,
+        )
+      : null;
 
     // ---------- Task ----------
     const logGroup = new logs.LogGroup(this, 'TickLogs', {
@@ -117,11 +132,22 @@ export class VaultRuntimeStack extends Stack {
         SYNAPSE_TICK_INTERVAL_MS: String(
           Math.max(60, props.tickIntervalMinutes * 60) * 1000,
         ),
+        ...(props.packageHistory ? { SYNAPSE_PACKAGE_HISTORY: props.packageHistory } : {}),
+        // Attested vaults (requires_attestation): the runtime calls this enclave
+        // for a signed decision and gates the rebalance PTB on attest_decision.
+        ...(props.enclaveUrl ? { SYNAPSE_ENCLAVE_URL: props.enclaveUrl } : {}),
+        ...(props.enclaveObjectId ? { SYNAPSE_ENCLAVE_OBJECT_ID: props.enclaveObjectId } : {}),
       },
       secrets: {
         SYNAPSE_SESSION_KEY: ecs.Secret.fromSecretsManager(sessionSecret),
         ...(memwalSecret
           ? { MEMWAL_DELEGATE_KEY: ecs.Secret.fromSecretsManager(memwalSecret) }
+          : {}),
+        // Per-vault Anthropic key (llm-advisor). EnvSecretsProvider reads
+        // ANTHROPIC_API_KEY; injected from Secrets Manager so it never lands in
+        // the task definition in plaintext.
+        ...(anthropicSecret
+          ? { ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(anthropicSecret) }
           : {}),
       },
       command: ['--once'],
@@ -133,6 +159,7 @@ export class VaultRuntimeStack extends Stack {
     // explicit so a hand-edit doesn't break it).
     sessionSecret.grantRead(taskDefinition.taskRole);
     memwalSecret?.grantRead(taskDefinition.taskRole);
+    anthropicSecret?.grantRead(taskDefinition.taskRole);
 
     // ---------- EventBridge cron ----------
     new events.Rule(this, 'TickSchedule', {
