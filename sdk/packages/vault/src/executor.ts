@@ -127,10 +127,19 @@ export function buildRebalancePTB(args: BuildRebalancePTBArgs): BuildRebalancePT
   }
 
   for (const trade of plan.trades) {
+    // The adapter is generic over <Base, Quote> and derives the event's
+    // base_type/quote_type from these type args — they are pool-canonical, NOT
+    // trade-directional. For a quote->base trade (direction 1) from=quote and
+    // to=base, so passing [from, to] would record base/quote swapped. Normalize.
+    const [baseTypeTag, quoteTypeTag] =
+      trade.direction === 1
+        ? [trade.toTypeTag, trade.fromTypeTag]
+        : [trade.fromTypeTag, trade.toTypeTag];
+
     // 1. Authorize the swap (pre-flight policy gate + event)
     tx.moveCall({
       target: target(synapsePackageId, 'deepbookAdapter', 'authorize_swap'),
-      typeArguments: [trade.fromTypeTag, trade.toTypeTag],
+      typeArguments: [baseTypeTag, quoteTypeTag],
       arguments: [
         tx.object(vaultId),
         tx.pure.id(trade.poolId),
@@ -151,24 +160,34 @@ export function buildRebalancePTB(args: BuildRebalancePTBArgs): BuildRebalancePT
     // 3. Caller-supplied DeepBookV3 swap
     const outputCoin = swap(tx, { trade, inputCoin, vaultId, synapsePackageId });
 
-    // 4. Deposit the output back into the vault treasury
+    // 4. Measure the REAL output amount on-chain before the coin is consumed,
+    //    so the audit event records the actual fill rather than the slippage
+    //    floor (minAmountOut). This also makes record_swap's output_amount > 0
+    //    check pass for any successful swap even when minAmountOut is 0.
+    const outputAmount = tx.moveCall({
+      target: '0x2::coin::value',
+      typeArguments: [trade.toTypeTag],
+      arguments: [outputCoin],
+    });
+
+    // 5. Deposit the output back into the vault treasury
     tx.moveCall({
       target: target(synapsePackageId, 'wallet', 'deposit'),
       typeArguments: [trade.toTypeTag],
       arguments: [tx.object(vaultId), outputCoin],
     });
 
-    // 5. Record the swap audit event
+    // 6. Record the swap audit event (same base/quote normalization)
     tx.moveCall({
       target: target(synapsePackageId, 'deepbookAdapter', 'record_swap'),
-      typeArguments: [trade.fromTypeTag, trade.toTypeTag],
+      typeArguments: [baseTypeTag, quoteTypeTag],
       arguments: [
         tx.object(vaultId),
         tx.pure.id(trade.poolId),
         tx.pure.address(deepbookPkg),
         tx.pure.u8(trade.direction),
         tx.pure.u64(trade.amountIn),
-        tx.pure.u64(trade.minAmountOut), // best-effort; real value from off-chain
+        outputAmount, // real fill measured on-chain via coin::value
         tx.pure.string(`${plan.planId}#${shortenPool(trade.poolId)}`),
       ],
     });

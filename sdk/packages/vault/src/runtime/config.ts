@@ -275,7 +275,16 @@ export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig
   };
 }
 
-export function deepbookPackageForRuntime(_config: RuntimeConfig): string {
+export function deepbookPackageForRuntime(config: RuntimeConfig): string {
+  // DeepBook integration is testnet-pinned: the package ID is hardcoded and the
+  // swap path supplies a zero DEEP fee coin (only valid for whitelisted testnet
+  // pools). Fail fast rather than building a mainnet tx against a testnet
+  // package — which would abort opaquely on-chain.
+  if (config.walrusNetwork === 'mainnet') {
+    throw new Error(
+      'Mainnet DeepBook trading is not yet wired (testnet-pinned package + zero-DEEP fee model). Set SYNAPSE_WALRUS_NETWORK=testnet.',
+    );
+  }
   return DEEPBOOK_PACKAGE_ID_TESTNET;
 }
 

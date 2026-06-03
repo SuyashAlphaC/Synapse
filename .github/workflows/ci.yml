@@ -13,6 +13,63 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  move:
+    name: move contracts (build + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install sui CLI
+        run: |
+          set -e
+          URL=$(curl -s "https://api.github.com/repos/MystenLabs/sui/releases?per_page=20" \
+            | grep -oE 'https://[^"]*sui-testnet-v[0-9.]+-ubuntu-x86_64.tgz' | head -1)
+          echo "Downloading $URL"
+          curl -sL "$URL" -o /tmp/sui.tgz
+          mkdir -p "$HOME/.sui-bin/extract"
+          tar xzf /tmp/sui.tgz -C "$HOME/.sui-bin/extract"
+          BIN=$(find "$HOME/.sui-bin/extract" -type f \( -name sui -o -name sui-debug \) | head -1)
+          ln -sf "$BIN" "$HOME/.sui-bin/sui"
+          echo "$HOME/.sui-bin" >> "$GITHUB_PATH"
+
+      - name: sui version
+        run: sui --version
+
+      - name: Test synapse_core
+        run: sui move test --path move/synapse_core
+
+      - name: Test synapse_seal
+        run: sui move test --path move/synapse_seal
+
+  sdk:
+    name: sdk (client + indexer + adapters)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install workspace deps (locked)
+        run: npm ci --ignore-scripts
+
+      - name: Build workspace deps
+        run: |
+          npm --workspace @synapse-core/client run build
+          npm --workspace @synapse-core/memwal-bridge run build
+
+      - name: Typecheck client + indexer + langgraph adapter
+        run: |
+          npm --workspace @synapse-core/client run typecheck
+          npm --workspace @synapse-core/indexer run typecheck
+          npm --workspace @synapse-core/adapter-langgraph run typecheck
+
+      - name: Client unit tests
+        run: npm --workspace @synapse-core/client test
+
   vault-runtime:
     name: vault runtime (typecheck + tests + secret-leak scan)
     runs-on: ubuntu-latest
@@ -60,3 +117,40 @@ jobs:
 
       - name: Build runtime image (smoke)
         run: docker build -f sdk/packages/vault/Dockerfile -t synapse-runtime:ci .
+
+  dashboard:
+    name: dashboard (build)
+    runs-on: ubuntu-latest
+    # Non-blocking: `next build` (Turbopack) currently can't resolve the
+    # @synapse-core/* workspace subpath exports (e.g. @synapse-core/vault/keypair)
+    # through file: symlinks, despite transpilePackages + built dist. This is a
+    # pre-existing dashboard packaging issue, tracked separately; don't fail the
+    # whole pipeline on it while the move/sdk/vault jobs gate the actual code.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # The dashboard depends on the SDK packages via file: links, so they must
+      # be installed + built before `next build` can resolve their `dist/`.
+      - name: Install workspace deps (locked)
+        run: npm ci --ignore-scripts
+
+      - name: Build SDK deps the dashboard imports
+        run: |
+          npm --workspace @synapse-core/client run build
+          npm --workspace @synapse-core/memwal-bridge run build
+          npm --workspace @synapse-core/vault run build
+
+      - name: Install dashboard deps (locked)
+        working-directory: web/dashboard
+        run: npm ci
+
+      - name: Build dashboard (Next.js — also typechecks)
+        working-directory: web/dashboard
+        run: npm run build

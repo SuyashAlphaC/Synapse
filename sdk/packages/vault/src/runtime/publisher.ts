@@ -203,5 +203,9 @@ export function parseArtifactSlot(tx: SuiTransactionBlockResponse): bigint {
     const slot = (parsed as Record<string, unknown>).artifact_slot;
     if (typeof slot === 'string' || typeof slot === 'number') return BigInt(slot);
   }
-  throw new Error(`Transaction ${tx.digest}: ArtifactPublishedEvent not found`);
+  // Not found — return a 0n sentinel rather than throwing. This runs AFTER the
+  // transaction has committed on-chain; throwing here would mis-count a fully
+  // successful tick as a failure (toward the kill-switch) and discard the
+  // receipt. The artifact slot is informational only.
+  return 0n;
 }

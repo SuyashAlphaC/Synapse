@@ -17,6 +17,7 @@
  */
 
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
+import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
 import { fromBase64, toBase64 } from '@mysten/sui/utils';
 
 /**
@@ -39,11 +40,14 @@ export interface SessionKey {
 export function generateSessionKey(): SessionKey {
   const keypair = new Ed25519Keypair();
   const address = keypair.toSuiAddress();
-  const secret = keypair.getSecretKey();
-  const secretBytes = fromBase64(secret.replace(/^suiprivkey/, ''));
+  // `getSecretKey()` returns a Bech32 `suiprivkey1...` string, NOT base64.
+  // Decode it properly to the raw 32-byte secret before base64-encoding;
+  // string-stripping the prefix and base64-decoding the bech32 body yields
+  // ~45 corrupt bytes that `restoreSessionKey` then rejects.
+  const { secretKey } = decodeSuiPrivateKey(keypair.getSecretKey());
   return {
     address,
-    secretBase64: toBase64(secretBytes),
+    secretBase64: toBase64(secretKey),
     keypair,
   };
 }

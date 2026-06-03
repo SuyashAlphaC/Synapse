@@ -1,7 +1,7 @@
 {
   "name": "@synapse-core/indexer",
   "version": "0.1.0",
-  "description": "Synapse Core indexer — correlates Sui events, MemWal events, and Walrus blob lifecycle into a unified GraphQL stream",
+  "description": "Synapse Core indexer — polls synapse_core Sui events into per-vault GraphQL views (in-memory v1)",
   "type": "module",
   "main": "./src/index.ts",
   "exports": {

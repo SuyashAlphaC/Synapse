@@ -96,7 +96,7 @@ export function createMemWalClientFromParts(parts: MemWalClientParts): MemWal {
   const config: MemWalConfig = {
     key: parts.delegateKeyHex,
     accountId: bytesToAsciiHex(parts.memwalAccountId),
-    namespace: utf8FromBytes(parts.memwalNamespace),
+    namespace: decodeNamespace(parts.memwalNamespace),
     ...(parts.serverUrl ? { serverUrl: parts.serverUrl } : {}),
   };
   return MemWal.create(config);
@@ -196,4 +196,17 @@ function bytesToAsciiHex(bytes: Uint8Array): string {
 
 function utf8FromBytes(bytes: Uint8Array): string {
   return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+}
+
+/**
+ * Strictly decode the namespace bytes. Unlike the accountId path (which has a
+ * hex fallback), a malformed namespace must fail loudly: silently substituting
+ * U+FFFD would point recall/remember at the wrong namespace and lose memory.
+ */
+function decodeNamespace(bytes: Uint8Array): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error('memwal namespace bytes are not valid UTF-8');
+  }
 }

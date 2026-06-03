@@ -22,6 +22,10 @@ const MODULES = [
   'attestation',
 ] as const;
 
+/** RPC page size and a safety ceiling on pages walked per module/package. */
+const PAGE_SIZE = 50;
+const MAX_PAGES_PER_MODULE = 40;
+
 const KIND_BY_EVENT_TAIL: Array<{ tail: string; kind: TimelineEntry['kind']; accent: string }> = [
   { tail: '::agent::AgentMintedEvent', kind: 'agent_minted', accent: '#030F1C' },
   { tail: '::agent::AgentRevokedEvent', kind: 'agent_revoked', accent: '#FF6B35' },
@@ -83,41 +87,54 @@ export async function loadLiveTimeline(opts: LoadEventsOptions): Promise<Timelin
 
   for (const pkg of packages) {
     for (const moduleName of MODULES) {
-      const pageLimit = Math.min(50, limit);
+      // Page through events newest-first until we've collected `limit` of them
+      // (or run out). A single page (the previous behavior) capped every module
+      // at 50 events, so NAV reconstruction silently dropped older deposits and
+      // the timeline was incomplete for any vault with real history.
+      let cursor: { txDigest: string; eventSeq: string } | null = null;
+      let fetched = 0;
+      let pages = 0;
       try {
-        const page = await client.queryEvents({
-          query: { MoveModule: { package: pkg, module: moduleName } },
-          cursor: null,
-          limit: pageLimit,
-          order: 'descending',
-        });
-        for (const ev of page.data) {
-          const id = `${ev.id.txDigest}-${ev.id.eventSeq}`;
-          if (seen.has(id)) continue;
-          const meta = classifyType(ev.type);
-          if (!meta) continue;
-          const parsed = ev.parsedJson as Record<string, unknown>;
-          if (agentId && !matchesAgent(parsed, agentId)) continue;
-          seen.add(id);
-          const entry: TimelineEntry = {
-            id,
-            vaultId: agentId ?? '',
-            kind: meta.kind,
-            description: describe(meta.kind, parsed),
-            timestamp: Number(ev.timestampMs ?? Date.now()),
-            txDigest: ev.id.txDigest,
-            accentColor: meta.accent,
-          };
-          // Surface the balance-moving amount + token so the NAV history
-          // reconstruction can replay funding inflows / spend outflows.
-          // (Swaps are NAV-neutral at current prices, so we deliberately
-          // leave them unannotated — see use-live-nav-history.)
-          const balance = balanceFieldsFor(meta.kind, parsed);
-          if (balance) {
-            entry.amount = balance.amount;
-            entry.tokenSymbol = balance.symbol;
+        while (pages < MAX_PAGES_PER_MODULE) {
+          const page = await client.queryEvents({
+            query: { MoveModule: { package: pkg, module: moduleName } },
+            cursor,
+            limit: PAGE_SIZE,
+            order: 'descending',
+          });
+          pages++;
+          for (const ev of page.data) {
+            const id = `${ev.id.txDigest}-${ev.id.eventSeq}`;
+            if (seen.has(id)) continue;
+            const meta = classifyType(ev.type);
+            if (!meta) continue;
+            const parsed = ev.parsedJson as Record<string, unknown>;
+            if (agentId && !matchesAgent(parsed, agentId)) continue;
+            seen.add(id);
+            const entry: TimelineEntry = {
+              id,
+              vaultId: agentId ?? '',
+              kind: meta.kind,
+              description: describe(meta.kind, parsed),
+              timestamp: Number(ev.timestampMs ?? Date.now()),
+              txDigest: ev.id.txDigest,
+              accentColor: meta.accent,
+            };
+            // Surface the balance-moving amount + token so the NAV history
+            // reconstruction can replay funding inflows / spend outflows.
+            // (Swaps are NAV-neutral at current prices, so we deliberately
+            // leave them unannotated — see use-live-nav-history.)
+            const balance = balanceFieldsFor(meta.kind, parsed);
+            if (balance) {
+              entry.amount = balance.amount;
+              entry.tokenSymbol = balance.symbol;
+            }
+            entries.push(entry);
           }
-          entries.push(entry);
+          fetched += page.data.length;
+          if (!page.hasNextPage || !page.nextCursor) break;
+          if (fetched >= limit) break;
+          cursor = page.nextCursor;
         }
       } catch (err) {
         // Per-module / per-package failures shouldn't kill the load.

@@ -31,7 +31,9 @@ export function MarketplaceBrowser() {
 
   const [risk, setRisk] = useState<RiskFilter>('all');
   const [status, setStatus] = useState<StatusFilter>('active');
-  const [sort, setSort] = useState<SortKey>('aum');
+  // Default to 'recent': total_aum_committed is not yet populated on-chain
+  // (always 0), so defaulting to 'aum' produced an arbitrary, no-op ordering.
+  const [sort, setSort] = useState<SortKey>('recent');
   const [search, setSearch] = useState('');
 
   const filtered = useMemo(() => {
