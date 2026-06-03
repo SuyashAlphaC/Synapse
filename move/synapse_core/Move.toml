@@ -7,7 +7,7 @@ version = "0.1.0"
 # Latest published instance of this package on testnet (v3). The CLI
 # uses this as the upgrade source. Bump on every successful
 # `sui client upgrade`.
-published-at = "0x85215709ab6e9db9494042a1405d75c942a3f827b2750e1be58bcd17b34a1534"
+published-at = "0x0240a49e849d2349a9ee403e6e08d897ce97c82dd0a1a9d9ebdb9ea4357de086"
 
 [dependencies]
 # Sui framework, MoveStdlib, Bridge, and SuiSystem are auto-resolved by `sui move` (Sui CLI 1.50+).
