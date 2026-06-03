@@ -41,6 +41,12 @@ export interface LiveAgentIdentity {
    * upgrade). The runtime gates the Walrus loader on this flag.
    */
   acceptsWalrusExecution: boolean;
+  /**
+   * v4+: vault requires an enclave-attested decision (Nautilus) before it may
+   * spend. Defaults to `false`. When true, the Move spend gate aborts any trade
+   * not preceded by a valid `decision_attestation::attest_decision` this epoch.
+   */
+  requiresAttestation: boolean;
 }
 
 export interface LiveBalance {
@@ -98,16 +104,18 @@ export async function loadLiveVault({
   const treasuryId = idFromField(treasuryFields.id, 'treasury.id');
 
   const identityCore = parseIdentity(vaultId, fields);
-  const [balances, opBudget, acceptsWalrusExecution] = await Promise.all([
+  const [balances, opBudget, acceptsWalrusExecution, requiresAttestation] = await Promise.all([
     loadTreasuryBalances(client, treasuryId),
     loadOperationalBudget(client, vaultId),
     loadWalrusConsent(client, vaultId),
+    loadRequiresAttestation(client, vaultId),
   ]);
   const identity: LiveAgentIdentity = {
     ...identityCore,
     operationalCapPerEpoch: opBudget.capPerEpoch,
     operationalSpentThisEpoch: opBudget.spentThisEpoch,
     acceptsWalrusExecution,
+    requiresAttestation,
   };
 
   return { identity, balances };
@@ -150,6 +158,39 @@ async function loadWalrusConsent(
       );
       const accept = inner['accept'];
       if (typeof accept === 'boolean') return accept;
+    } catch {
+      // Try the next historical package; missing field is not an error.
+    }
+  }
+  return false;
+}
+
+/**
+ * Read the per-vault attestation requirement (added in package v4). Stored as a
+ * dynamic field keyed by `AttestationGateKey`. Returns `false` for any vault
+ * whose owner never called `set_requires_attestation`. Walks the package history
+ * because the key type is namespaced by the package that defined it.
+ */
+async function loadRequiresAttestation(
+  client: SuiJsonRpcClient,
+  vaultId: string,
+): Promise<boolean> {
+  const packages =
+    SYNAPSE_PACKAGE_HISTORY.length > 0 ? SYNAPSE_PACKAGE_HISTORY : [SYNAPSE_PACKAGE_ID];
+  for (const pkg of packages) {
+    try {
+      const obj = await client.getDynamicFieldObject({
+        parentId: vaultId,
+        name: {
+          type: `${pkg}::agent::AttestationGateKey`,
+          value: { dummy_field: false },
+        },
+      });
+      const content = obj.data?.content;
+      if (!content || content.dataType !== 'moveObject') continue;
+      const inner = unwrapMoveValue((content as { fields: unknown }).fields, 'AttestationGate');
+      const required = inner['required'];
+      if (typeof required === 'boolean') return required;
     } catch {
       // Try the next historical package; missing field is not an error.
     }
@@ -289,7 +330,10 @@ function parseIdentity(
   fields: Record<string, unknown>,
 ): Omit<
   LiveAgentIdentity,
-  'operationalCapPerEpoch' | 'operationalSpentThisEpoch' | 'acceptsWalrusExecution'
+  | 'operationalCapPerEpoch'
+  | 'operationalSpentThisEpoch'
+  | 'acceptsWalrusExecution'
+  | 'requiresAttestation'
 > {
   return {
     id,

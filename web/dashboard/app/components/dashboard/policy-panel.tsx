@@ -20,7 +20,7 @@ import {
   MEMWAL_PACKAGE_ID,
   NETWORK,
 } from '@/lib/synapse-config';
-import { buildSetWalrusConsentPTB } from '@/lib/ptb';
+import { buildSetWalrusConsentPTB, buildSetRequiresAttestationPTB } from '@/lib/ptb';
 import type { PricedVaultState } from '../../hooks/use-live-vault';
 import { SAMPLE_VAULT } from '@/lib/sample-data';
 
@@ -52,6 +52,7 @@ type EditMode =
   | 'remove-pkg'
   | 'op-cap'
   | 'walrus-consent'
+  | 'attestation'
   | 'memwal-register'
   | null;
 
@@ -250,6 +251,25 @@ export function PolicyPanel({ live }: PolicyPanelProps) {
             editLabel={live.identity.acceptsWalrusExecution ? 'Revoke' : '+ enable'}
           />
         )}
+
+        {live && (
+          <PolicyRow
+            label="Attested execution"
+            value={
+              live.identity.requiresAttestation
+                ? 'Required · chain rejects trades not signed by the enclave'
+                : 'Off · trades execute without enclave attestation'
+            }
+            hint={
+              live.identity.requiresAttestation
+                ? 'Every spend aborts unless a valid Nautilus enclave decision was attested this epoch'
+                : 'Enable to require a Nautilus (TEE) enclave signature before any trade'
+            }
+            accent="var(--accent-blue)"
+            onEdit={() => setEditMode('attestation')}
+            editLabel={live.identity.requiresAttestation ? 'Disable' : '+ require'}
+          />
+        )}
       </dl>
 
       {live && editMode === 'spend' && (
@@ -293,6 +313,12 @@ export function PolicyPanel({ live }: PolicyPanelProps) {
       )}
       {live && editMode === 'walrus-consent' && (
         <WalrusConsentModal
+          identity={live.identity}
+          onClose={() => setEditMode(null)}
+        />
+      )}
+      {live && editMode === 'attestation' && (
+        <AttestationModal
           identity={live.identity}
           onClose={() => setEditMode(null)}
         />
@@ -1004,6 +1030,107 @@ function WalrusConsentModal({
             sha256 guarantee ties what runs to what the strategist committed to
             on-chain — it does not prevent the bundle from reading env or
             opening sockets. Sandboxing is a follow-up.
+          </p>
+          {error && <ErrorBlock msg={error} />}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function AttestationModal({
+  identity,
+  onClose,
+}: {
+  identity: PricedVaultState['identity'];
+  onClose: () => void;
+}) {
+  const account = useCurrentAccount();
+  const { submit, pending } = useSubmitPolicy();
+  const enabling = !identity.requiresAttestation;
+  const [digest, setDigest] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function go() {
+    setError(null);
+    try {
+      const tx = buildSetRequiresAttestationPTB({ agentId: identity.id, required: enabling });
+      const d = await submit({
+        tx,
+        vaultId: identity.id,
+        successTitle: enabling ? 'Attestation required' : 'Attestation requirement removed',
+      });
+      setDigest(d);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={
+        digest
+          ? enabling
+            ? 'Attestation required'
+            : 'Attestation requirement removed'
+          : enabling
+            ? 'Require enclave-attested decisions'
+            : 'Stop requiring attestation'
+      }
+      accent={enabling ? 'var(--accent-blue)' : 'var(--accent-orange)'}
+      footer={
+        digest ? (
+          <button type="button" className="btn-flat" data-variant="primary" onClick={onClose}>
+            Close
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="btn-flat"
+              data-variant="ghost"
+              onClick={onClose}
+              disabled={pending}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn-flat"
+              data-variant={enabling ? 'primary' : 'danger'}
+              onClick={go}
+              disabled={pending || !account}
+            >
+              {pending ? 'Signing…' : enabling ? 'Require on-chain' : 'Remove on-chain'}
+            </button>
+          </>
+        )
+      }
+    >
+      {digest ? (
+        <div className="space-y-3 text-sm">
+          <DoneBlock digest={digest} />
+          <p className="text-ink-soft">
+            {enabling
+              ? 'The Move spend gate now aborts any trade unless a valid Nautilus enclave decision was attested this epoch. The chain — not the runtime — enforces it.'
+              : 'Trades will execute without an enclave signature again.'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3 text-sm">
+          <p className="text-ink-soft">
+            Calls{' '}
+            <code className="font-mono text-[11px]">agent::set_requires_attestation</code>. Owner-only.
+            {enabling
+              ? ' After this lands, every spend by this vault aborts (ENotAttested) unless decision_attestation::attest_decision verified an enclave signature this epoch.'
+              : ' The vault returns to executing trades without enclave attestation.'}
+          </p>
+          <p className="rounded-sm border-l-2 border-accent-blue bg-paper p-3 font-mono text-[11px] text-ink-soft">
+            Nautilus: the AI decision is produced + signed inside an attested TEE
+            enclave; the Move VM verifies that signature before the swap. Requires
+            a registered enclave (real Oyster/AWS Nitro, or a dev box on testnet).
           </p>
           {error && <ErrorBlock msg={error} />}
         </div>
