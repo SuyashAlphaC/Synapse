@@ -5,7 +5,7 @@
 <h1 align="center">Synapse Vault</h1>
 
 <p align="center"><b>Autonomous AI treasury management on Sui — powered by Walrus.</b></p>
-<p align="center"><i>Hire an AI portfolio manager. Pay it in basis points. Revoke it in one click.<br>Every decision is remembered, audited, and bound to its trade on-chain — on Walrus.</i></p>
+<p align="center"><i>Hire an AI portfolio manager. Pay it in basis points. Revoke it in one click.<br>Every decision is remembered on Walrus, signed by an attested enclave, and verified on-chain before the trade.</i></p>
 
 <p align="center">
   <a href="https://synapse-kappa-sable.vercel.app">Live demo</a> ·
@@ -85,8 +85,9 @@ Mapped 1:1 to the official problem statement. **LIVE** = exercised on testnet (t
 | Inspect / debug agent memory on Walrus | **LIVE** | Dashboard recall panel (semantic query → SEAL-decrypted hits → Walrus blob links) + Artifacts panel + on-chain audit timeline. |
 | **Seal** | **LIVE** | `synapse_seal` policy package published at `0x14a1cbc600affc135510237ad779f19f924dfb2a6ee068b9b85f2c59d69bc91a`. Full encrypt → `seal_approve` → decrypt round-trip verified against the live testnet key servers. |
 | **Walrus Sites** | **LIVE** | Marketing site published to Walrus Sites — Site object `0x55c33a39…001a` (`web/site/`). |
-| **Sui Stack Messaging** | **CODE-COMPLETE** | Real `@mysten/messaging` send (Walrus-stored, Seal-encrypted) + on-chain `messaging_bridge::record_send/record_receive` correlator (`examples/messaging-demo`). Isolated package — the SDK pins sui 1.x, the main repo is on sui 2.x. Typecheck-verified; live channel creation is operator-side. |
-| **Functional AI agent (LLM in the loop)** | **LIVE (Walrus-loaded)** | The `llm-advisor` strategy: Claude reasons over the live market **and the vault's recalled MemWal memory** to set the target allocation; the audited rebalancer executes it within on-chain policy. Closes **recall → reason → act → remember**. Published as a Walrus-loaded marketplace strategy and dispatched on testnet (`dispatching to Walrus-loaded marketplace strategy`). Needs an Anthropic API key on the runtime; degrades to a transparent noop without one. |
+| **Sui Stack Messaging** | **LIVE** | Real `@mysten/messaging` send (Walrus-stored, Seal-encrypted) + on-chain `messaging_bridge::record_send/record_receive` correlator. Wired **into the runtime tick** (`runtime/messaging.ts`): a vault consumes peers' signals from its inbox channel as memory facts and emits one on each rebalance. Live channel + message verified on testnet (`examples/messaging-demo`, isolated for the sui-1.x pin). |
+| **Functional AI agent (LLM in the loop)** | **LIVE (Walrus-loaded)** | The `llm-advisor` strategy: Claude reasons over the live market **and the vault's recalled MemWal memory** to set the target allocation; the audited rebalancer executes it within on-chain policy. Closes **recall → reason → act → remember**. Walrus-published marketplace strategy, dispatched on testnet. **Tick-gated** (only calls the model on material drift/staleness) and reads a per-vault key from the secrets seam. |
+| **Verifiable AI execution (Nautilus / TEE)** | **LIVE (dev enclave)** | The decision runs in an attested enclave (`enclave/`) that signs it; `synapse_core::decision_attestation` verifies the secp256k1 signature on-chain against the registered enclave **before the swap**. Opt-in per vault (`requires_attestation`) → the Move VM **refuses any unattested trade**. Proven on testnet: tx `7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe` (`DecisionAttested`). Real-TEE deploy (Marlin Oyster / AWS Nitro) documented; the live proof used a registered dev box. |
 | Cryptographic revocation cascade | **LIVE** | On-chain revoke + owner-signed MemWal delegate removal. |
 
 ---
@@ -107,9 +108,13 @@ public(package) fun assert_package_allowed(identity: &AgentIdentity, pkg: addres
 public(package) fun record_spend(identity: &mut AgentIdentity, amount: u64) {
     assert!(identity.spent_this_epoch + amount <= identity.spend_per_epoch, EOverBudget);
 }
+// Opt-in: trades only execute after a TEE-attested decision this epoch.
+public(package) fun assert_attested_if_required(identity: &AgentIdentity, ctx: &TxContext) {
+    // aborts ENotAttested unless decision_attestation::attest_decision stamped this epoch
+}
 ```
 
-A compromised runtime can't bypass these. A jailbroken LLM can't. The protocol authors can't. The chain literally aborts the transaction. Everything else — the marketplace, zkLogin onboarding, the dashboard, the Walrus audit trail — exists to demonstrate this one claim.
+A compromised runtime can't bypass these. A jailbroken LLM can't. The protocol authors can't. The chain literally aborts the transaction. With `requires_attestation` enabled, even the vault's own runtime can't trade unless an **attested enclave** signed the exact decision — verified on-chain before the swap. Everything else — the marketplace, zkLogin onboarding, the dashboard, the Walrus audit trail — exists to demonstrate this one claim.
 
 ---
 
@@ -127,6 +132,8 @@ A compromised runtime can't bypass these. A jailbroken LLM can't. The protocol a
 | `messaging_bridge.move` | Sui Stack Messaging audit correlator (`record_send` / `record_receive`). |
 | `attestation.move` | Unified action log across every subsystem. |
 | `deepbook_adapter.move` | DeepBookV3 swap policy gate + audit — composable, not wrapping. |
+| `enclave.move` | Nautilus verifier: register an AWS Nitro enclave (`sui::nitro_attestation`), verify its secp256k1 signatures (`ecdsa_k1`) over a BCS intent message. |
+| `decision_attestation.move` | The attested-execution gate: an enclave-signed `DecisionPayload` (vault, epoch, target weight, inputs hash) is verified + stamped on-chain; `agent::requires_attestation` makes `wallet::spend` abort without it. |
 
 Plus `move/synapse_seal` — a standalone Seal access-policy package (`policy::seal_approve`, identity-prefix access).
 
@@ -135,10 +142,12 @@ Plus `move/synapse_seal` — a standalone Seal access-policy package (`policy::s
 | Package | What |
 |---|---|
 | `client` | Sui PTB builders (agent, wallet, artifacts, zkLogin) + Seal wrapper + Walrus upload. |
-| `vault` | The runtime: strategy engine, rebalance executor, audit-report generator, MemWal recall/remember, Walrus publisher, headless `bin/run.ts`, secrets provider, fail-safe tick loop. |
+| `vault` | The runtime: strategy engine, rebalance executor, audit-report generator, MemWal recall/remember, Walrus publisher, headless `bin/run.ts`, secrets provider, cross-agent messaging (`messaging.ts`), attested-execution client (`enclave-client.ts`), fail-safe tick loop. |
 | `memwal-bridge` | Synapse-aware wrapper over MemWal (`recall`/`remember`, namespace-keyed). |
 | `indexer` | Event indexer (timeline + artifacts). |
 | `adapters/langgraph` | LangGraph `SynapseStore` (Walrus-durable agent memory). |
+
+Plus `enclave/` — the **Nautilus decision enclave** (Node): runs the advisor inside an attested AWS Nitro enclave (Marlin Oyster, or a local dev box), signs each `DecisionPayload` with a secp256k1 key bound to the enclave's PCR measurement. The key never leaves the enclave.
 
 ### Dashboard — `web/dashboard` (Next.js)
 
@@ -147,10 +156,10 @@ Mint wizard (zkLogin or wallet), marketplace with real backtest curves, per-vaul
 ### The runtime tick (recall → reason → act → remember)
 
 1. Load on-chain agent state + Pyth prices + DeepBook spreads.
-2. **Recall** the strategy's memory from MemWal.
-3. **Reason**: the strategy (deterministic, or the LLM advisor calling Claude over recalled memory) emits a decision.
-4. **Act**: one PTB — policy-gated DeepBook swap + `record_tick_performance` + royalty payout.
-5. Upload the rationale to **Walrus** + register the on-chain `ArtifactRef`.
+2. **Recall** the strategy's memory from MemWal; **consume** any new cross-agent signals from the inbox channel as memory facts.
+3. **Reason**: the strategy emits a decision — deterministic, the LLM advisor over recalled memory, or (attested vaults) the **enclave** which signs the target weight.
+4. **Act**: one PTB — `[attest_decision verify]` → policy-gated DeepBook swap → `record_tick_performance` → capped royalty payout → `log_action` + `ArtifactRef`.
+5. Upload the rationale to **Walrus**; **emit** a cross-agent signal on rebalance.
 6. **Remember**: persist the decision outcome to MemWal for the next tick.
 
 ---
@@ -176,7 +185,7 @@ Mint wizard (zkLogin or wallet), marketplace with real backtest curves, per-vaul
 
 **Sequencing.** (1) Testnet + design-partner DAOs running real funds. (2) Seed an honest marketplace with external strategists. (3) Mainnet cutover (package + DEEP funding + a funded dry-run). (4) Managed hosting ("Synapse runs your agent") for DAOs that don't want to touch infra, alongside the self-host path.
 
-**Where the edge is.** The individual primitives are commodity — on-chain spend caps, allowlists, revocation, and durable memory exist across the market (Crossmint, Safe, Lit, Turnkey, MemWal). The edge is the **Sui-native assembly**: one enforced envelope where the Move VM is the *only* thing that can move money, the audit trail is bound to each trade on-chain and stored on Walrus (portable, not ours to censor), and the kill switch is one owner signature. We don't replace a TEE with on-chain policy — we're adding one: **enclave attestation (Nautilus via Marlin Oyster) is in progress** so the decision itself becomes provably produced by the published agent code, not just bound after the fact. On-chain enforcement is what we have today; attested execution is what makes "verifiable" literally true (see [Honest status](#10-honest-status)).
+**Where the edge is.** The individual primitives are commodity — on-chain spend caps, allowlists, revocation, and durable memory exist across the market (Crossmint, Safe, Lit, Turnkey, MemWal). The edge is the **Sui-native assembly**: one enforced envelope where the Move VM is the *only* thing that can move money, the audit trail is bound to each trade on-chain and stored on Walrus (portable, not ours to censor), and the kill switch is one owner signature. We don't replace a TEE with on-chain policy — we combine both: **enclave attestation (Nautilus) is live on testnet** (a dev-enclave signature verified on-chain, `DecisionAttested` tx `7TLfyS6a…`), so the decision is provably produced by the registered agent code, not just bound after the fact. On-chain enforcement + attested execution together are what make "verifiable" literally true; the remaining step is a genuine-TEE deploy (see [Honest status](#10-honest-status)).
 
 ---
 
@@ -184,8 +193,10 @@ Mint wizard (zkLogin or wallet), marketplace with real backtest curves, per-vaul
 
 | Thing | ID |
 |---|---|
-| `synapse_core` (latest, v3) | `0xd849b7b281cdc030daf4e2269a36e85e285edd44849b481eb6da49aed1978f01` |
-| `synapse_core` history (v2, v1) | `0x5da36d892956a4659415e245126a3964dd5aa6cf19ec2fdf6332bf828a4c58ed`, `0x7b3f59e42edbf2189df644e63162d0b9a2c2984755bab9d3e9557c4ddd4aa67c` |
+| `synapse_core` (latest, **v5** — enclave attestation + royalty cap) | `0x0240a49e849d2349a9ee403e6e08d897ce97c82dd0a1a9d9ebdb9ea4357de086` |
+| `synapse_core` history (v4, v3, v2, v1) | `0x85215709…1534`, `0xd849b7b2…78f01`, `0x5da36d89…58ed`, `0x7b3f59e4…a67c` |
+| Registered enclave (`Enclave<DecisionEnclave>`) | `0x361b7a26380d5312247ff0afca78086c996ecc159bd30ca3b0a5ee4bf949ab9f` |
+| Live attestation proof (`DecisionAttested`) | tx `7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe` |
 | `synapse_seal` (Seal policy) | `0x14a1cbc600affc135510237ad779f19f924dfb2a6ee068b9b85f2c59d69bc91a` |
 | Walrus Site (marketing) | `0x55c33a39757a4487ca8cebdaffd5b7b9f9ba9601456a82ef5f031c689ae0001a` |
 
@@ -214,8 +225,15 @@ cd move/synapse_core && sui move test
 cd move/synapse_seal && sui move test
 
 # SDK tests
-npm --workspace @synapse-core/vault test             # 67 tests
+npm --workspace @synapse-core/vault test             # 88 tests
 npm --workspace @synapse-core/adapter-langgraph test # 8 tests
+```
+
+```bash
+# the Nautilus decision enclave (local dev box)
+cd enclave && npm install
+head -c 32 /dev/urandom > signing-key
+ANTHROPIC_API_KEY=sk-ant-... PORT=3009 node src/index.js ./signing-key
 ```
 
 ---
@@ -223,15 +241,19 @@ npm --workspace @synapse-core/adapter-langgraph test # 8 tests
 ## 9. Verification
 
 ```
-move:                      synapse_core + synapse_seal — sui move test clean
-sdk/packages/vault:        67 tests (secrets, logger redaction, alerts,
-                           walrus-loader allowlist, runtime fail-safe, llm-advisor)
+move:                      synapse_core (25 tests) + synapse_seal — incl. the
+                           Node↔Move secp256k1/BCS attestation contract +
+                           royalty-drain guard; sui move test clean
+sdk/packages/vault:        88 tests (secrets, logger redaction, alerts, walrus-
+                           loader allowlist, runtime fail-safe, llm-advisor +
+                           tick-gating, messaging consume/emit, enclave-client)
 adapters/langgraph:        8 tests (put/get/recall/tombstone/search/filter)
-dashboard:                 strict typecheck + production build (11/11 prerender)
-CI:                        GitHub Actions — typecheck + tests + secret-leak scan + Docker build
+dashboard:                 strict typecheck + production build
+CI:                        GitHub Actions — Move tests + SDK typecheck/test +
+                           dashboard build + secret-leak scan + Docker build
 ```
 
-Live-verified on testnet: full mint → tick → DeepBook swap → Walrus artifact → MemWal recall; Seal encrypt/decrypt round-trip; cross-agent read (`CrossAgentReadEvent`); Walrus-loaded LLM strategy dispatched.
+Live-verified on testnet: full mint → tick → DeepBook swap → Walrus artifact → MemWal recall; Seal encrypt/decrypt round-trip; cross-agent read (`CrossAgentReadEvent`); Walrus-loaded LLM strategy dispatched; **Nautilus attestation** — a dev-enclave signature verified on-chain + `DecisionAttested` emitted (tx `7TLfyS6a…`).
 
 ---
 
@@ -239,12 +261,11 @@ Live-verified on testnet: full mint → tick → DeepBook swap → Walrus artifa
 
 | Item | Note |
 |---|---|
-| **What "verifiable" means today** | Each tick's full rationale + inputs + exact trade is hashed and the hash is logged on-chain **in the same PTB as the swap** (`attestation::log_action`, `executor.ts`), then the blob is stored tamper-evident on Walrus. This proves the logged reasoning is **bound to that trade and unaltered** — it does **not** yet prove the model actually produced that reasoning or ran the published code. That stronger claim needs attested execution. |
-| **Attested execution (Nautilus)** | **In progress.** The decision step is moving into an AWS Nitro enclave via Marlin Oyster; the enclave signs `(inputs ‖ decision)` and a Move contract verifies the signature against the registered enclave key before the swap executes. When live, "the trade was provably produced by the published agent code" becomes literally true, and the runtime keys (session + Anthropic) live inside the enclave rather than a host env var. |
+| **What "verifiable" means** | Two layers. (1) **Tamper-evident audit** — each tick's rationale + inputs + exact trade is hashed and logged on-chain in the same PTB as the swap, then stored on Walrus. (2) **Attested execution (Nautilus)** — the decision is produced + signed inside an attested enclave and the Move VM verifies that signature before the swap. Together: the trade is provably produced by the registered agent code, bound to its inputs, and unaltered. |
+| **Attested execution (Nautilus)** | **LIVE on testnet with a dev enclave** — `register_dev_enclave` + on-chain `attest_decision` verified a real enclave signature and emitted `DecisionAttested` (tx `7TLfyS6a…`); `requires_attestation` makes the spend gate enforce it. **Remaining:** a genuine-TEE deploy (Marlin Oyster `--deployment sui`, or own AWS Nitro) — the dev box proves the full pipeline but isn't hardware-attested. Steps in `enclave/README.md`. |
 | Mainnet | Testnet only. Mainnet is a deliberate cutover (publish gas + real DEEP funding + a funded dry-run). |
-| Sui Stack Messaging | Built + typecheck-verified; live channel creation needs a funded owner wallet (operator-side). |
-| DEEP fee path | Testnet pools accept a zero-DEEP swap; mainnet needs the treasury to hold DEEP. Documented in `deepbook.ts`. |
-| Third-party audit | Not done. The threat model, the Walrus-strategy allowlist, and CI cover the intent; a professional audit precedes mainnet. |
+| DEEP fee path | Testnet pools accept a zero-DEEP swap; mainnet needs the treasury to hold DEEP. The runtime fails fast on mainnet rather than building a testnet-pinned tx (`deepbookPackageForRuntime`). |
+| Third-party audit | Not done. An internal multi-agent audit (`AUDIT.md`) ran and its findings are fixed — incl. the critical **royalty-drain** (now charged against the per-epoch cap) and the indexer/session-key/zkLogin fixes. A professional external audit still precedes mainnet. |
 | AI advisor | Server-side only — the browser in-tab runtime excludes `@anthropic-ai/sdk` and degrades to a noop. |
 
 ---
@@ -258,12 +279,14 @@ See **[THREAT_MODEL.md](./THREAT_MODEL.md)** — session-key compromise, Walrus-
 ## 12. Repo layout
 
 ```
-move/synapse_core        8 Move modules — the policy engine + marketplace
+move/synapse_core        10 Move modules — policy engine + marketplace + Nautilus attestation
 move/synapse_seal        Seal access-policy package
 sdk/packages/*           client · vault (runtime) · memwal-bridge · indexer · adapters/langgraph
+enclave/                 Nautilus decision enclave (Node) — attested, signs decisions
 web/dashboard            Next.js app (mint, marketplace, per-vault dashboard)
 web/site                 marketing site (Walrus Sites)
 examples/messaging-demo  Sui Stack Messaging integration (isolated, sui 1.x)
 infrastructure/aws       CDK + secret-push scripts for hosted deployment
 scripts                  backtests, dev utilities, CI checks
+AUDIT.md                 internal multi-agent security audit + remediation
 ```
