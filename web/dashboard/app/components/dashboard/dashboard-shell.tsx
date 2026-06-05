@@ -65,7 +65,7 @@ import type { LocalVaultRecord } from '@/lib/local-vaults';
 import { useLiveVault } from '../../hooks/use-live-vault';
 import { useLiveNavHistory } from '../../hooks/use-live-nav-history';
 import { useStrategies } from '../../hooks/use-strategies';
-import { requiresWalrusConsent } from '@/lib/strategies';
+import { requiresWalrusConsent, requiresAnthropicApiKey } from '@/lib/strategies';
 
 interface DashboardShellProps {
   /**
@@ -270,7 +270,7 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
           {liveVault && (
             <HostedRuntimePanel
               vaultId={liveVault.agentId}
-              needsAnthropicKey={hiredStrategy ? requiresWalrusConsent(hiredStrategy) : false}
+              needsAnthropicKey={hiredStrategy ? requiresAnthropicApiKey(hiredStrategy) : false}
             />
           )}
           {liveVault && <InBrowserRuntimePanel vaultId={liveVault.agentId} />}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   computeWalSwapAmountMist,
   estimateWalFrostForUpload,
+  isInsufficientSuiGasError,
   isInsufficientWalBalanceError,
   MIN_WAL_REFUEL_SWAP_MIST,
   suiNeededBeforeWalSwap,
@@ -33,7 +34,7 @@ describe('computeWalSwapAmountMist', () => {
     });
     expect(swap).not.toBeNull();
     expect(swap!).toBeGreaterThanOrEqual(MIN_WAL_REFUEL_SWAP_MIST);
-    expect(swap!).toBeLessThanOrEqual(43_280_660n); // balance - gas reserve
+    expect(swap!).toBeLessThanOrEqual(35_280_660n); // balance - 20M gas reserve
   });
 
   it('returns null when session cannot afford min swap + reserve', () => {
@@ -70,6 +71,18 @@ describe('isInsufficientWalBalanceError', () => {
       isInsufficientWalBalanceError(
         new Error(
           'Insufficient balance of 0x8270…::wal::WAL for owner 0xabc. Required: 1221129, Available: 0',
+        ),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe('isInsufficientSuiGasError', () => {
+  it('detects gas coin too small for Walrus upload', () => {
+    expect(
+      isInsufficientSuiGasError(
+        new Error(
+          'Error checking transaction input objects: Balance of gas object 9664604 is lower than the needed amount: 9902444',
         ),
       ),
     ).toBe(true);

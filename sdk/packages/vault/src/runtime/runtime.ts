@@ -87,11 +87,13 @@ import {
   DEFAULT_WAL_REFUEL_AMOUNT_MIST,
   DEFAULT_WAL_REFUEL_THRESHOLD_FROST,
   estimateWalFrostForUpload,
+  isInsufficientSuiGasError,
   isInsufficientWalBalanceError,
   MIN_WAL_REFUEL_SWAP_MIST,
   needsWalRefuel,
   suiNeededBeforeWalSwap,
   WAL_COIN_TYPE,
+  WALRUS_UPLOAD_MIN_SUI_MIST,
 } from './wal-refuel.js';
 import { deepbookSwap } from './deepbook.js';
 import { deepbookPackageForRuntime } from './config.js';
@@ -336,7 +338,6 @@ export class VaultRuntime {
     // log and proceed; the current tick's own gas comes from whatever
     // SUI the session already holds.
     await this.#maybeRefuelSession(signer, currentEpoch);
-    await this.#maybeRefuelWAL(signer, currentEpoch);
 
     // Auto-detect the vault's quote token from its bag holdings so the
     // strategy resolver targets the right USDC variant (Circle, bridge,
@@ -904,19 +905,6 @@ export class VaultRuntime {
   /** Cached exchange package ID — resolved once on first WAL refuel. */
   #walExchangePkg: string | null = null;
 
-  /**
-   * Pre-tick auto-WAL-refuel. Uses an adaptive SUI→WAL swap sized to the
-   * session's actual SUI balance (not a fixed 0.5 SUI). Pulls operational
-   * SUI from the vault treasury when the session cannot afford the swap.
-   */
-  async #maybeRefuelWAL(
-    signer: Awaited<ReturnType<typeof loadSessionKeypair>>,
-    epoch: bigint,
-    requiredWalFrost?: bigint,
-  ): Promise<void> {
-    await this.#ensureWalForUpload(signer, epoch, requiredWalFrost ?? 0);
-  }
-
   async #ensureWalForUpload(
     signer: Awaited<ReturnType<typeof loadSessionKeypair>>,
     epoch: bigint,
@@ -1080,8 +1068,9 @@ export class VaultRuntime {
     const requiredWal = estimateWalFrostForUpload(payloadBytes, epochs);
 
     await this.#ensureWalForUpload(args.signer, args.currentEpoch, requiredWal);
+    await this.#ensureSuiForWalrusUpload(args.signer, args.currentEpoch);
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         return await uploadReportBlob({
           suiClient: this.#client,
@@ -1092,19 +1081,35 @@ export class VaultRuntime {
           ...(args.seal ? { seal: args.seal } : {}),
         });
       } catch (err) {
-        if (isInsufficientWalBalanceError(err) && attempt === 0) {
+        if (isInsufficientWalBalanceError(err) && attempt < 2) {
           const bumped = requiredWal + requiredWal / 2n;
           this.#logger.warn(
             { requiredWal: requiredWal.toString(), bumped: bumped.toString() },
             'walrus upload WAL shortfall after refuel; retrying with larger target',
           );
           await this.#ensureWalForUpload(args.signer, args.currentEpoch, bumped);
+          await this.#ensureSuiForWalrusUpload(args.signer, args.currentEpoch);
+          continue;
+        }
+        if (isInsufficientSuiGasError(err) && attempt < 2) {
+          this.#logger.warn(
+            { err: err instanceof Error ? err.message : String(err) },
+            'walrus upload SUI gas shortfall; refueling session from treasury',
+          );
+          await this.#ensureSuiForWalrusUpload(args.signer, args.currentEpoch);
           continue;
         }
         throw err;
       }
     }
-    throw new Error('walrus upload failed after WAL refuel retries');
+    throw new Error('walrus upload failed after WAL/SUI refuel retries');
+  }
+
+  async #ensureSuiForWalrusUpload(
+    signer: Awaited<ReturnType<typeof loadSessionKeypair>>,
+    epoch: bigint,
+  ): Promise<void> {
+    await this.#maybeRefuelSession(signer, epoch, WALRUS_UPLOAD_MIN_SUI_MIST);
   }
 
   async #executeNoop(
@@ -1491,6 +1496,9 @@ function walrusFailureHint(errorMessage: string): string {
   const m = errorMessage.toLowerCase();
   if (m.includes('insufficient balance') && m.includes('wal')) {
     return 'session WAL still insufficient after adaptive auto-refuel — check treasury operational budget / pull_operational_funds cap';
+  }
+  if (m.includes('balance of gas object') && m.includes('lower than the needed amount')) {
+    return 'session SUI too low for Walrus upload gas — auto-refuel should top up from treasury; check operational budget cap';
   }
   if (m.includes('too many failures') || m.includes('too many invalid confirmations')) {
     return 'transient testnet Walrus storage-node consensus failure — WAL may have been partially spent; next tick will retry';

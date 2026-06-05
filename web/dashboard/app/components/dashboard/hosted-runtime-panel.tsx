@@ -8,7 +8,7 @@ import type { HostedRuntimePhase, HostedRuntimeStatus } from '@/lib/hosted-runti
 
 interface Props {
   vaultId: string;
-  /** When true, surface Anthropic key field (LangGraph / LLM strategies). */
+  /** When true, surface Anthropic key field (LLM strategies that call Claude). */
   needsAnthropicKey?: boolean;
 }
 
@@ -153,7 +153,7 @@ export function HostedRuntimePanel({ vaultId, needsAnthropicKey = false }: Props
       toast.push({
         variant: 'warn',
         title: 'Anthropic API key required',
-        body: 'This strategy uses LangGraph / Claude at tick time.',
+        body: 'This strategy calls Claude at tick time.',
       });
       return;
     }

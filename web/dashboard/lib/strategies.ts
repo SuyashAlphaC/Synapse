@@ -48,6 +48,43 @@ export function requiresWalrusConsent(
   return isLikelyWalrusBlobId(strategy.sourceWalrusBlob);
 }
 
+/**
+ * Whether tick-time execution calls Claude / Anthropic APIs.
+ *
+ * LangGraph is a workflow framework — it does not imply an API key. Only
+ * strategies that actually invoke Claude (or declare `ANTHROPIC_API_KEY` in
+ * publish metadata) need one at runtime.
+ */
+export function requiresAnthropicApiKey(
+  strategy: Pick<LiveStrategy, 'name' | 'description'>,
+): boolean {
+  const name = strategy.name.trim();
+  const description = strategy.description.trim();
+  const haystack = `${name}\n${description}`;
+
+  if (ANTHROPIC_NAME_HINTS.some((hint) => name.toLowerCase().includes(hint))) {
+    return true;
+  }
+
+  if (/\bllm\b/i.test(name)) {
+    return true;
+  }
+
+  return ANTHROPIC_METADATA_PATTERN.test(haystack);
+}
+
+/** Published strategy names that call Claude (substring match, case-insensitive). */
+const ANTHROPIC_NAME_HINTS = [
+  'llm advisor',
+  'llm yield',
+  'llm-advisor',
+  'llm-yield',
+] as const;
+
+/** On-chain description / publish notes that declare Anthropic usage. */
+const ANTHROPIC_METADATA_PATTERN =
+  /ANTHROPIC_API_KEY|@anthropic-ai\/sdk|\bClaude\b/i;
+
 function isLikelyWalrusBlobId(value: string): boolean {
   return value.length >= 40 && /^[A-Za-z0-9_\-=]+$/.test(value);
 }

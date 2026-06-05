@@ -192,6 +192,27 @@ export class VaultRuntimeStack extends Stack {
     memwalSecret?.grantRead(taskDefinition.taskRole);
     anthropicSecret?.grantRead(taskDefinition.taskRole);
 
+    // Shared ECR images (hosted runtime / runtimeImageUri) are not CDK assets —
+    // the execution role must pull them explicitly.
+    if (props.runtimeImageUri) {
+      taskDefinition.addToExecutionRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['ecr:GetAuthorizationToken'],
+          resources: ['*'],
+        }),
+      );
+      taskDefinition.addToExecutionRolePolicy(
+        new iam.PolicyStatement({
+          actions: [
+            'ecr:BatchCheckLayerAvailability',
+            'ecr:GetDownloadUrlForLayer',
+            'ecr:BatchGetImage',
+          ],
+          resources: ['*'],
+        }),
+      );
+    }
+
     // ---------- EventBridge cron ----------
     new events.Rule(this, 'TickSchedule', {
       schedule: events.Schedule.rate(
@@ -213,7 +234,6 @@ export class VaultRuntimeStack extends Stack {
       description: `Run Synapse Vault tick every ${props.tickIntervalMinutes} min for ${props.agentId}`,
     });
 
-    void ecsPatterns; // imported for IDE/type assistance; not used directly
-    void iam;
+    void ecsPatterns;
   }
 }

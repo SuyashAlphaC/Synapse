@@ -28,7 +28,7 @@ export interface EnableHostedRuntimeRequest {
   vaultId: string;
   /** Full JSON contents of the dashboard `.key` file. */
   sessionKeyFileJson: string;
-  /** Required for LLM / LangGraph marketplace strategies. */
+  /** Optional — only for strategies that call Claude at tick time. */
   anthropicApiKey?: string;
   tickIntervalMinutes?: number;
   /** Must be true — confirms secrets are sent to Synapse AWS hosting. */

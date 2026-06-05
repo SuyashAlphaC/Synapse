@@ -17,8 +17,11 @@ export const DEFAULT_WAL_REFUEL_AMOUNT_MIST = 50_000_000n;
 /** Minimum SUI swap size (0.005 SUI). */
 export const MIN_WAL_REFUEL_SWAP_MIST = 5_000_000n;
 
-/** Leave this much SUI on the session after a WAL swap for gas (tick + publish PTB). */
-export const WAL_REFUEL_GAS_RESERVE_MIST = 12_000_000n;
+/** Leave this much SUI on the session after a WAL swap for gas (tick PTB + Walrus publish). */
+export const WAL_REFUEL_GAS_RESERVE_MIST = 20_000_000n;
+
+/** Minimum session SUI before attempting a Walrus upload PTB (~10M observed + margin). */
+export const WALRUS_UPLOAD_MIN_SUI_MIST = 20_000_000n;
 
 /** Safety margin on top of per-upload estimate (0.002 WAL). */
 export const WAL_UPLOAD_SAFETY_FROST = 2_000_000n;
@@ -79,4 +82,14 @@ export function isInsufficientWalBalanceError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   const lower = message.toLowerCase();
   return lower.includes('insufficient balance') && lower.includes('wal');
+}
+
+/** Sui gas coin too small to pay for the Walrus upload PTB. */
+export function isInsufficientSuiGasError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  const lower = message.toLowerCase();
+  return (
+    (lower.includes('balance of gas object') && lower.includes('lower than the needed amount')) ||
+    lower.includes('insufficient gas')
+  );
 }
