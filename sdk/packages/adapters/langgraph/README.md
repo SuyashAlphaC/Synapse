@@ -19,6 +19,14 @@ What you get for free:
 npm install @synapse-core/adapter-langgraph
 ```
 
+## Production vault runtime
+
+Synapse Vault's tick loop passes {@link SynapseStore} into LangGraph strategies
+via `createLangGraphStrategy` in `@synapse-core/vault/langgraph`. Attested
+(Nautilus) enclaves run hash-verified LangGraph bundles from Walrus — publish
+self-contained strategy files with `scripts/bundle-strategy.ts` or the dashboard
+marketplace server bundler (`/api/bundle-strategy`).
+
 ## Use — the whole integration is one object
 
 ```ts

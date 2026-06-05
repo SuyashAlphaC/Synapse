@@ -40,6 +40,11 @@ const anthropicSecretName =
 const enclaveUrl = app.node.tryGetContext('enclaveUrl') ?? process.env.SYNAPSE_ENCLAVE_URL ?? null;
 const enclaveObjectId =
   app.node.tryGetContext('enclaveObjectId') ?? process.env.SYNAPSE_ENCLAVE_OBJECT_ID ?? null;
+const runtimeImageUri =
+  app.node.tryGetContext('runtimeImageUri') ??
+  process.env.SYNAPSE_RUNTIME_ECR_IMAGE ??
+  process.env.SYNAPSE_HOSTED_RUNTIME_ECR_IMAGE ??
+  null;
 
 if (!agentId || !packageId) {
   throw new Error(
@@ -62,4 +67,5 @@ new VaultRuntimeStack(app, `SynapseVaultRuntime${suffix}`, {
   anthropicSecretName,
   enclaveUrl,
   enclaveObjectId,
+  runtimeImageUri,
 });

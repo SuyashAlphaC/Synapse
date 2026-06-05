@@ -38,7 +38,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 const WALRUS_TESTNET_AGGREGATOR = 'https://aggregator.walrus-testnet.walrus.space';
 const WALRUS_MAINNET_AGGREGATOR = 'https://aggregator.walrus-mainnet.walrus.space';
 
-const MAX_BUNDLE_BYTES = 512 * 1024;
+const MAX_BUNDLE_BYTES = 4 * 1024 * 1024;
 
 export type WalrusNetwork = 'testnet' | 'mainnet';
 

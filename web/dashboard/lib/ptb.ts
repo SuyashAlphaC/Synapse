@@ -185,6 +185,64 @@ export function buildSetRequiresAttestationPTB(args: {
   return tx;
 }
 
+/**
+ * Owner-only partial withdrawal from the vault treasury via
+ * `wallet::withdraw<T>`. Returns the coin in the PTB and transfers it to
+ * `to` (typically the owner / DAO multisig address).
+ */
+export function buildWithdrawPTB(args: {
+  agentId: string;
+  amount: bigint;
+  to: string;
+  coinTypeTag: string;
+}): Transaction {
+  const tx = new Transaction();
+  const coin = tx.moveCall({
+    target: synapseTarget('wallet', 'withdraw'),
+    typeArguments: [args.coinTypeTag],
+    arguments: [
+      tx.object(args.agentId),
+      tx.pure.u64(args.amount),
+      tx.pure.address(args.to),
+    ],
+  });
+  tx.transferObjects([coin], tx.pure.address(args.to));
+  return tx;
+}
+
+/**
+ * Owner-only full drain of one coin type from the vault treasury. Move
+ * transfers the balance directly to the vault owner inside `wallet::drain`.
+ */
+export function buildDrainPTB(args: { agentId: string; coinTypeTag: string }): Transaction {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: synapseTarget('wallet', 'drain'),
+    typeArguments: [args.coinTypeTag],
+    arguments: [tx.object(args.agentId)],
+  });
+  return tx;
+}
+
+/**
+ * Owner-only batched drain: one `wallet::drain<T>` per coin type in a single
+ * PTB. Each balance is transferred to the vault owner on-chain.
+ */
+export function buildDrainAllPTB(args: {
+  agentId: string;
+  coinTypeTags: string[];
+}): Transaction {
+  const tx = new Transaction();
+  for (const coinTypeTag of args.coinTypeTags) {
+    tx.moveCall({
+      target: synapseTarget('wallet', 'drain'),
+      typeArguments: [coinTypeTag],
+      arguments: [tx.object(args.agentId)],
+    });
+  }
+  return tx;
+}
+
 /** Build the revoke PTB against a known AgentIdentity object ID. */
 export function buildRevokePTB(args: { agentId: string; strategyId: string }): Transaction {
   const tx = new Transaction();

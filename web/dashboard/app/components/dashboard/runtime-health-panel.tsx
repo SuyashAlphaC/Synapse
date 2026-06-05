@@ -191,7 +191,7 @@ function computeStatus(minutesSince: number | null): {
     return {
       kind: 'offline',
       label: 'Agent offline · no ticks',
-      hint: 'Deploy the runtime (locally or to AWS via infrastructure/aws) and fund the session key — the autonomous loop will start emitting TickRecordedEvent automatically.',
+      hint: 'Enable hosted runtime below (recommended), run in-browser for testing, or deploy infrastructure/aws yourself. Fund the session key so ticks can land on-chain.',
       accent: 'var(--accent-orange)',
       dot: 'var(--accent-orange)',
     };

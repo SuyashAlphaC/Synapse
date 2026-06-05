@@ -1,0 +1,18 @@
+# Used when CDK / docker build context is the repo root (vault-runtime-stack).
+infrastructure/aws/cdk.out
+**/cdk.out
+**/.git
+**/node_modules
+web/dashboard
+web/marketing
+infrastructure/aws/node_modules
+enclave
+move
+examples
+docs
+**/.next
+**/.turbo
+**/coverage
+**/.env
+**/.env.*
+**/*.log

@@ -14,12 +14,14 @@ import { shortenHash } from '@/lib/format';
 
 const DEFAULT_EPOCHS = 12;
 const MAX_SOURCE_BYTES = 256 * 1024; // 256 KiB — generous for a single strategy
-const STARTER_TEMPLATE = `// Strategists: write a self-contained strategy that default-exports either:
-//   (a) a Strategy object, or
-//   (b) a factory function returning a Strategy.
+const STARTER_TEMPLATE = `// Strategists: default-export a Strategy object or factory.
 //
-// Types from @synapse-core/vault are erased at compile time, so you can
-// import them as 'type-only' imports for editor support without runtime cost.
+// Legacy TS: type-only imports from @synapse-core/vault compile away in the
+// browser bundler.
+//
+// LangGraph: import createLangGraphStrategy + StateGraph from @langchain/langgraph.
+// The dashboard auto-routes LangGraph sources through the server bundler so
+// dependencies are inlined for Walrus publish + Nautilus attestation.
 
 import type { Strategy, StrategyInput, StrategyDecision } from '@synapse-core/vault';
 

@@ -13,6 +13,24 @@
 // Strategy model
 // =============================================================================
 
+/** Marker set on strategies built via {@link createLangGraphStrategy}. */
+export const SYNAPSE_LANGGRAPH_STRATEGY = Symbol.for('synapse.langgraph.strategy.v1');
+
+/**
+ * Runtime-provided context for a single tick. Passed as the optional second
+ * argument to `Strategy.evaluate` / `prepareMemoryWrite` when MemWal is
+ * configured. Attested enclave execution receives `undefined` here — graphs
+ * must derive state from `StrategyInput.memory` in that path.
+ */
+export interface StrategyRuntimeContext {
+  /** Walrus-durable LangGraph `BaseStore` for this vault. */
+  store: import('@synapse-core/adapter-langgraph').SynapseStore;
+  /** MemWal namespace string (UTF-8 decoded from on-chain identity). */
+  namespace: string;
+  /** LangGraph configurable thread id — defaults to the vault object id. */
+  threadId: string;
+}
+
 /**
  * A strategy is a pure function of (current portfolio state, market state,
  * memory) → either a no-op decision or a concrete rebalance plan.
@@ -20,6 +38,10 @@
  * Strategies are stateless code; persistent state lives in MemWal and Walrus.
  * This makes strategies trivially upgradeable (deploy new code, point the
  * Vault at it) without touching on-chain state.
+ *
+ * LangGraph-backed strategies (see `createLangGraphStrategy`) implement the
+ * same interface; the runtime passes {@link StrategyRuntimeContext} when
+ * MemWal is available.
  */
 export interface Strategy {
   /** Stable identifier — recorded on every rebalance for auditability. */
@@ -35,7 +57,7 @@ export interface Strategy {
    * a `RebalancePlan` describing the trades to execute. The runtime is
    * responsible for actually executing the plan via the Vault executor.
    */
-  evaluate(input: StrategyInput): Promise<StrategyDecision>;
+  evaluate(input: StrategyInput, runtime?: StrategyRuntimeContext): Promise<StrategyDecision>;
   /**
    * Optional: declare the counter/fact updates the runtime should persist
    * to MemWal after this tick. The runtime calls it on BOTH noop and
@@ -53,6 +75,7 @@ export interface Strategy {
   prepareMemoryWrite?(args: {
     input: StrategyInput;
     decision: StrategyDecision;
+    runtime?: StrategyRuntimeContext;
   }): Promise<MemoryWrite | null>;
 }
 

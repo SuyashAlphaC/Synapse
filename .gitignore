@@ -71,5 +71,8 @@ move/**/Published.toml
 # local pitch deck (not part of the repo)
 pitch/
 
+# AWS CDK synth output (generated locally on deploy)
+infrastructure/aws/cdk.out/
+
 # local messaging-demo helper (holds owner key)
 run-messaging.sh

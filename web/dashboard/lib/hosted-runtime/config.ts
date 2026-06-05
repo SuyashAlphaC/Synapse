@@ -1,0 +1,93 @@
+import { resolve } from 'node:path';
+import {
+  NETWORK,
+  SYNAPSE_PACKAGE_HISTORY,
+  SYNAPSE_PACKAGE_ID,
+} from '@/lib/synapse-config';
+
+export function isHostedRuntimeApiEnabled(): boolean {
+  return process.env.SYNAPSE_HOSTED_RUNTIME_ENABLED === 'true';
+}
+
+/** True when running on Vercel (serverless — no CDK CLI or Docker). */
+export function isVercelDeployment(): boolean {
+  return process.env.VERCEL === '1';
+}
+
+/**
+ * CloudFormation API deploy (Vercel-safe). On Vercel always; locally when
+ * SYNAPSE_HOSTED_RUNTIME_USE_CFN=true or a shared ECR image is configured.
+ */
+export function useCloudFormationProvisioner(): boolean {
+  if (isVercelDeployment()) return true;
+  if (process.env.SYNAPSE_HOSTED_RUNTIME_USE_CFN === 'true') return true;
+  return Boolean(sharedRuntimeImageUri());
+}
+
+export function hostedRuntimeRegion(): string {
+  return (
+    process.env.SYNAPSE_HOSTED_RUNTIME_AWS_REGION ??
+    process.env.AWS_REGION ??
+    process.env.AWS_DEFAULT_REGION ??
+    'us-east-1'
+  );
+}
+
+export function hostedRuntimePaths(): { repoRoot: string; awsDir: string } {
+  const dashboardRoot = process.cwd();
+  const repoRoot = resolve(dashboardRoot, '../..');
+  const awsDir = resolve(repoRoot, 'infrastructure/aws');
+  return { repoRoot, awsDir };
+}
+
+export function vaultShortId(vaultId: string): string {
+  return vaultId.startsWith('0x') ? vaultId.slice(2, 10) : vaultId.slice(0, 8);
+}
+
+export function stackNameForVault(vaultId: string): string {
+  return `SynapseVaultRuntime-${vaultShortId(vaultId)}`;
+}
+
+export function secretNamesForVault(vaultId: string): {
+  session: string;
+  memwal: string;
+  anthropic: string;
+} {
+  const short = vaultShortId(vaultId);
+  return {
+    session: `synapse/vault/${short}/session-key`,
+    memwal: `synapse/vault/${short}/memwal-delegate`,
+    anthropic: `synapse/vault/${short}/anthropic-key`,
+  };
+}
+
+export function logGroupForVault(vaultId: string): string {
+  return `/synapse/vault/${vaultShortId(vaultId)}`;
+}
+
+export function packageHistoryCsv(): string {
+  return SYNAPSE_PACKAGE_HISTORY.length > 0
+    ? [...SYNAPSE_PACKAGE_HISTORY].join(',')
+    : SYNAPSE_PACKAGE_ID;
+}
+
+export function defaultPackageId(): string {
+  return process.env.SYNAPSE_HOSTED_RUNTIME_PACKAGE_ID ?? SYNAPSE_PACKAGE_ID;
+}
+
+export function defaultWalrusNetwork(): 'testnet' | 'mainnet' {
+  return NETWORK === 'mainnet' ? 'mainnet' : 'testnet';
+}
+
+export function sharedRuntimeImageUri(): string | null {
+  const uri =
+    process.env.SYNAPSE_HOSTED_RUNTIME_ECR_IMAGE ??
+    process.env.SYNAPSE_RUNTIME_ECR_IMAGE ??
+    null;
+  return uri && uri.trim().length > 0 ? uri.trim() : null;
+}
+
+export function defaultTickIntervalMinutes(): number {
+  const raw = Number(process.env.SYNAPSE_HOSTED_RUNTIME_TICK_MINUTES ?? 10);
+  return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 10;
+}

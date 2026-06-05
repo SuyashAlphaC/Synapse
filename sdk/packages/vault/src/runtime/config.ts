@@ -168,13 +168,13 @@ export interface RuntimeConfig {
   /**
    * Trigger auto-WAL-refuel when session WAL balance drops below this
    * many FROST (1 WAL = 1_000_000_000 FROST). Override via
-   * `SYNAPSE_WAL_REFUEL_THRESHOLD`. Default 0.1 WAL.
+   * `SYNAPSE_WAL_REFUEL_THRESHOLD`. Default 0.01 WAL.
    */
   walRefuelThreshold?: bigint;
   /**
-   * Amount of SUI MIST to exchange for WAL when refueling.
-   * Override via `SYNAPSE_WAL_REFUEL_AMOUNT`. Default 0.5 SUI
-   * (≈ 0.5 WAL at 1:1 testnet rate — enough for dozens of uploads).
+   * Max SUI MIST to exchange for WAL per refuel attempt (adaptive — uses
+   * less when the session balance is smaller). Override via
+   * `SYNAPSE_WAL_REFUEL_AMOUNT`. Default 0.05 SUI.
    */
   walRefuelAmount?: bigint;
 }

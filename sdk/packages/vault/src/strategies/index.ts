@@ -20,6 +20,11 @@ export type { AggressiveMomentumConfig } from './aggressive-momentum.js';
 export { meanReversion, MEAN_REVERSION_ID } from './mean-reversion.js';
 export type { MeanReversionConfig } from './mean-reversion.js';
 
+export {
+  meanReversionLangGraph,
+  meanReversionLangGraphTestnet,
+} from './mean-reversion-langgraph.js';
+
 export { dcaTwap, DCA_TWAP_ID } from './dca-twap.js';
 export type { DcaTwapConfig, DcaDirection } from './dca-twap.js';
 

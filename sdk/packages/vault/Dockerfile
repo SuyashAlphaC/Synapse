@@ -48,11 +48,13 @@ RUN npm ci --ignore-scripts
 # Source.
 COPY sdk/packages/client ./sdk/packages/client
 COPY sdk/packages/memwal-bridge ./sdk/packages/memwal-bridge
+COPY sdk/packages/adapters/langgraph ./sdk/packages/adapters/langgraph
 COPY sdk/packages/vault ./sdk/packages/vault
 
 # Compile vault + its workspace deps to JS.
 RUN npm --workspace @synapse-core/client run build \
   && npm --workspace @synapse-core/memwal-bridge run build --if-present \
+  && npm --workspace @synapse-core/adapter-langgraph run build \
   && npm --workspace @synapse-core/vault run build
 
 # ---------- Runtime image ----------

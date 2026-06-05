@@ -60,6 +60,9 @@ export async function bundleStrategySource(args: {
   source: string;
   filename: string;
 }): Promise<BundleResult> {
+  if (detectLangGraphSource(args.source)) {
+    return bundleStrategySourceServer(args);
+  }
   const esbuild = await getEsbuild();
   const loader = resolveLoader(args.filename);
 
@@ -121,13 +124,8 @@ export async function bundleStrategySource(args: {
   };
 }
 
-/**
- * Light sanity check on the bundle. Catches the obvious "user forgot
- * the export" case before we charge them an on-chain publish. We do NOT
- * execute the bundle — that's the runtime's job, in its own sandbox.
- */
 function validateBundleShape(text: string): void {
-  if (!/export\s+(default|{[^}]*default[^}]*})/.test(text)) {
+  if (!hasDefaultExport(text)) {
     throw new StrategyBundleError({
       message:
         'Bundle has no `export default`. ' +
@@ -143,6 +141,15 @@ function validateBundleShape(text: string): void {
       location: null,
     });
   }
+}
+
+/** Accept minified ESM (`export{X as default}`) as well as `export default`. */
+function hasDefaultExport(text: string): boolean {
+  return (
+    /\bexport\s+default\b/.test(text) ||
+    /\bexport\s*\{[^}]*\bas\s+default\b/.test(text) ||
+    /\bexport\s*\{[^}]*\bdefault\s+as\b/.test(text)
+  );
 }
 
 function resolveLoader(filename: string): Loader {
@@ -198,4 +205,56 @@ async function getEsbuild(): Promise<EsbuildModule> {
     });
   }
   return esbuildPromise;
+}
+
+/** True when the source needs the server-side bundler (LangGraph deps). */
+export function detectLangGraphSource(source: string): boolean {
+  return (
+    /@langchain\/langgraph/.test(source) ||
+    /@anthropic-ai\/sdk/.test(source) ||
+    /createLangGraphStrategy/.test(source) ||
+    /meanReversionLangGraph/.test(source) ||
+    /synapseLangGraph/.test(source)
+  );
+}
+
+/** Bundle via `/api/bundle-strategy` — bundles LangGraph + Synapse deps. */
+async function bundleStrategySourceServer(args: {
+  source: string;
+  filename: string;
+}): Promise<BundleResult> {
+  const res = await fetch('/api/bundle-strategy', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ source: args.source, filename: args.filename }),
+  });
+  const payload = (await res.json()) as {
+    error?: string;
+    bundleBase64?: string;
+    text?: string;
+    mode?: string;
+  };
+  if (!res.ok) {
+    throw new StrategyBundleError({
+      message: payload.error ?? `Server bundle failed (${res.status})`,
+      location: null,
+    });
+  }
+  if (!payload.bundleBase64 || !payload.text) {
+    throw new StrategyBundleError({
+      message: 'Server bundle returned no bytes',
+      location: null,
+    });
+  }
+  const binary = atob(payload.bundleBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  validateBundleShape(payload.text);
+  return {
+    bytes,
+    text: payload.text,
+    warnings: [
+      `Bundled in ${payload.mode ?? 'langgraph'} mode (server) — LangGraph deps inlined for Walrus + Nautilus attestation.`,
+    ],
+  };
 }

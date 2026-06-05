@@ -14,7 +14,9 @@ const nextConfig: NextConfig = {
     '@synapse-core/vault',
     '@synapse-core/client',
     '@synapse-core/memwal-bridge',
+    '@synapse-core/adapter-langgraph',
   ],
+  serverExternalPackages: ['esbuild'],
 };
 
 export default nextConfig;

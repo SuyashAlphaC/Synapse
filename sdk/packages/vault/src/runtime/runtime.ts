@@ -79,7 +79,20 @@ import {
   recallStrategyMemory,
   rememberStrategyOutcome,
 } from './memory.js';
+import { isLangGraphStrategy } from './langgraph-marker.js';
+import type { StrategyRuntimeContext } from '../types.js';
 import { uploadReportBlob, parseArtifactSlot, type SealUploadOptions } from './publisher.js';
+import {
+  computeWalSwapAmountMist,
+  DEFAULT_WAL_REFUEL_AMOUNT_MIST,
+  DEFAULT_WAL_REFUEL_THRESHOLD_FROST,
+  estimateWalFrostForUpload,
+  isInsufficientWalBalanceError,
+  MIN_WAL_REFUEL_SWAP_MIST,
+  needsWalRefuel,
+  suiNeededBeforeWalSwap,
+  WAL_COIN_TYPE,
+} from './wal-refuel.js';
 import { deepbookSwap } from './deepbook.js';
 import { deepbookPackageForRuntime } from './config.js';
 import { loadSessionKeypair, loadMemwalDelegateFromKeyFile } from './keypair.js';
@@ -135,15 +148,6 @@ const DEFAULT_REFUEL_THRESHOLD_MIST = 20_000_000n;
 /** Default top-up size when refueling (0.05 SUI). */
 const DEFAULT_REFUEL_AMOUNT_MIST = 50_000_000n;
 
-/** Trigger WAL refuel when session WAL drops below this many FROST (0.1 WAL). */
-const DEFAULT_WAL_REFUEL_THRESHOLD = 100_000_000n;
-/** Exchange this much SUI MIST for WAL when refueling (0.5 SUI). */
-const DEFAULT_WAL_REFUEL_AMOUNT = 500_000_000n;
-/**
- * WAL coin type on testnet and mainnet (same package).
- * Walrus's wal::WAL is published at this address on both networks.
- */
-const WAL_COIN_TYPE = '0x8270feb7375eee355e64fdb69c50abb6b5f9393a722883c1cf45f8e26048810a::wal::WAL';
 /** Minimum positive-alpha USD to pay a royalty (avoid dust pulls). */
 const ROYALTY_MIN_ALPHA_USD = 0.0001;
 
@@ -332,7 +336,7 @@ export class VaultRuntime {
     // log and proceed; the current tick's own gas comes from whatever
     // SUI the session already holds.
     await this.#maybeRefuelSession(signer, currentEpoch);
-    await this.#maybeRefuelWAL(signer);
+    await this.#maybeRefuelWAL(signer, currentEpoch);
 
     // Auto-detect the vault's quote token from its bag holdings so the
     // strategy resolver targets the right USDC variant (Circle, bridge,
@@ -509,6 +513,23 @@ export class VaultRuntime {
       },
     };
 
+    const effectiveMemwalConfig = memwalConfig ?? this.#config.memwal;
+    let strategyRuntime: StrategyRuntimeContext | undefined;
+    if (isLangGraphStrategy(activeStrategy)) {
+      const { buildStrategyRuntimeContext } = await import('./strategy-context.js');
+      strategyRuntime = buildStrategyRuntimeContext({
+        identity: agent.identity,
+        memwal,
+        memwalConfig: effectiveMemwalConfig,
+        namespace,
+        vaultId: this.#config.agentId,
+      });
+      this.#logger.info(
+        { strategyId: activeStrategy.id, store: Boolean(strategyRuntime?.store) },
+        'dispatching LangGraph strategy (SynapseStore when MemWal enabled)',
+      );
+    }
+
     // --- Cross-agent consume: read peers' signals from the on-chain inbox
     // channel and inject them as memory facts so the strategy/enclave sees them.
     // Persisted channel ids come from the vault's on-chain state; the cursor
@@ -565,7 +586,7 @@ export class VaultRuntime {
       decision = result.decision;
       attestation = result.attestation;
     } else {
-      decision = await activeStrategy.evaluate(input);
+      decision = await activeStrategy.evaluate(input, strategyRuntime);
     }
     const report = renderReport({
       vaultId: this.#config.agentId,
@@ -582,7 +603,11 @@ export class VaultRuntime {
     // writing to MemWal.
     const strategyMemoryWrite =
       typeof activeStrategy.prepareMemoryWrite === 'function'
-        ? await activeStrategy.prepareMemoryWrite({ input, decision })
+        ? await activeStrategy.prepareMemoryWrite({
+            input,
+            decision,
+            ...(strategyRuntime !== undefined ? { runtime: strategyRuntime } : {}),
+          })
         : null;
     // Fold the advanced message cursor into the memory write so the next tick
     // resumes after the messages we just consumed (never reprocessed).
@@ -630,20 +655,15 @@ export class VaultRuntime {
       return receipt;
     }
 
-    // Try to upload the rationale to Walrus, degrade gracefully if no WAL.
-    // The rebalance trade itself does NOT require Walrus — the on-chain
-    // attestation::log_action + record_tick_performance calls still land
-    // and capture the audit trail. The rationale blob is fetchable
-    // metadata; missing it doesn't change what the agent actually did.
+    // Try to upload the rationale to Walrus. WAL balance is guaranteed
+    // immediately before upload (adaptive SUI→WAL refuel + treasury pull).
     const sealOpts = this.#sealOptions();
     let upload: Awaited<ReturnType<typeof uploadReportBlob>> | null = null;
     try {
-      upload = await uploadReportBlob({
-        suiClient: this.#client,
-        walrusNetwork: this.#config.walrusNetwork,
-        signer,
+      upload = await this.#uploadReportEnsuringWal({
         report,
-        epochs: this.#config.walrusEpochs ?? DEFAULT_WALRUS_EPOCHS,
+        signer,
+        currentEpoch,
         ...(sealOpts ? { seal: sealOpts } : {}),
       });
     } catch (err) {
@@ -781,8 +801,9 @@ export class VaultRuntime {
   async #maybeRefuelSession(
     signer: Awaited<ReturnType<typeof loadSessionKeypair>>,
     epoch: bigint,
+    minBalanceMist?: bigint,
   ): Promise<void> {
-    const threshold = this.#config.refuelThresholdMist ?? DEFAULT_REFUEL_THRESHOLD_MIST;
+    const threshold = minBalanceMist ?? this.#config.refuelThresholdMist ?? DEFAULT_REFUEL_THRESHOLD_MIST;
     const topUpAmount =
       this.#config.refuelAmountMist ?? DEFAULT_REFUEL_AMOUNT_MIST;
     const sessionAddr = signer.toSuiAddress();
@@ -798,14 +819,25 @@ export class VaultRuntime {
       return;
     }
     if (balance >= threshold) return;
+    await this.#pullOperationalSui(signer, epoch, topUpAmount, balance, 'auto-refuel');
+  }
+
+  async #pullOperationalSui(
+    signer: Awaited<ReturnType<typeof loadSessionKeypair>>,
+    epoch: bigint,
+    topUpAmount: bigint,
+    balanceBefore: bigint,
+    label: 'auto-refuel' | 'auto-wal-refuel',
+  ): Promise<boolean> {
+    const sessionAddr = signer.toSuiAddress();
     this.#logger.info(
       {
         sessionAddr,
-        balance: balance.toString(),
-        threshold: threshold.toString(),
+        balance: balanceBefore.toString(),
         topUpAmount: topUpAmount.toString(),
+        label,
       },
-      'auto-refuel: session below threshold; pulling from treasury',
+      `${label}: session below threshold; pulling from treasury`,
     );
     try {
       const tx = new Transaction();
@@ -824,16 +856,48 @@ export class VaultRuntime {
       this.#logger.info(
         {
           txDigest: result.digest,
-          newBalance: (balance + topUpAmount).toString(),
+          newBalance: (balanceBefore + topUpAmount).toString(),
           epoch: epoch.toString(),
+          label,
         },
-        'auto-refuel: session topped up from treasury',
+        `${label}: session topped up from treasury`,
       );
+      return true;
+    } catch (err) {
+      this.#logger.warn(
+        { err: err instanceof Error ? err.message : String(err), label },
+        `${label}: pull_operational_funds failed (cap unset, exhausted, or treasury dry?). Proceeding with existing session gas.`,
+      );
+      return false;
+    }
+  }
+
+  async #readSessionSuiBalance(sessionAddr: string): Promise<bigint | null> {
+    try {
+      const r = await this.#client.getBalance({ owner: sessionAddr });
+      return BigInt(r.totalBalance);
     } catch (err) {
       this.#logger.warn(
         { err: err instanceof Error ? err.message : String(err) },
-        'auto-refuel: pull_operational_funds failed (cap unset, exhausted, or treasury dry?). Proceeding with existing session gas.',
+        'session balance read failed',
       );
+      return null;
+    }
+  }
+
+  async #readSessionWalBalance(sessionAddr: string): Promise<bigint | null> {
+    try {
+      const r = await this.#client.getBalance({
+        owner: sessionAddr,
+        coinType: WAL_COIN_TYPE,
+      });
+      return BigInt(r.totalBalance);
+    } catch (err) {
+      this.#logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'session WAL balance read failed',
+      );
+      return null;
     }
   }
 
@@ -841,38 +905,102 @@ export class VaultRuntime {
   #walExchangePkg: string | null = null;
 
   /**
-   * Pre-tick auto-WAL-refuel. Checks the session's WAL balance; if below
-   * threshold, swaps SUI → WAL via the Walrus `wal_exchange::exchange_all_for_wal`
-   * contract. This keeps the session funded for Walrus audit-blob uploads
-   * without any manual intervention — fully autonomous.
+   * Pre-tick auto-WAL-refuel. Uses an adaptive SUI→WAL swap sized to the
+   * session's actual SUI balance (not a fixed 0.5 SUI). Pulls operational
+   * SUI from the vault treasury when the session cannot afford the swap.
    */
   async #maybeRefuelWAL(
     signer: Awaited<ReturnType<typeof loadSessionKeypair>>,
+    epoch: bigint,
+    requiredWalFrost?: bigint,
+  ): Promise<void> {
+    await this.#ensureWalForUpload(signer, epoch, requiredWalFrost ?? 0);
+  }
+
+  async #ensureWalForUpload(
+    signer: Awaited<ReturnType<typeof loadSessionKeypair>>,
+    epoch: bigint,
+    requiredWalFrost: number | bigint,
   ): Promise<void> {
     const exchangeIds = this.#config.walExchangeIds;
     if (!exchangeIds || exchangeIds.length === 0) return;
 
-    const threshold = this.#config.walRefuelThreshold ?? DEFAULT_WAL_REFUEL_THRESHOLD;
-    const swapAmount = this.#config.walRefuelAmount ?? DEFAULT_WAL_REFUEL_AMOUNT;
+    const threshold =
+      this.#config.walRefuelThreshold ?? DEFAULT_WAL_REFUEL_THRESHOLD_FROST;
+    const maxSwap = this.#config.walRefuelAmount ?? DEFAULT_WAL_REFUEL_AMOUNT_MIST;
+    const required =
+      typeof requiredWalFrost === 'bigint'
+        ? requiredWalFrost
+        : BigInt(Math.max(0, requiredWalFrost));
+    const minWal = required > threshold ? required : threshold;
+
     const sessionAddr = signer.toSuiAddress();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const walBalance = (await this.#readSessionWalBalance(sessionAddr)) ?? 0n;
+      if (!needsWalRefuel(walBalance, minWal)) return;
 
-    let walBalance = 0n;
-    try {
-      const r = await this.#client.getBalance({
-        owner: sessionAddr,
-        coinType: WAL_COIN_TYPE,
+      const swapped = await this.#executeWalRefuelSwap(signer, epoch, {
+        targetFrost: minWal,
+        maxSwapMist: maxSwap,
+        walBalance,
       });
-      walBalance = BigInt(r.totalBalance);
-    } catch (err) {
-      this.#logger.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        'auto-wal-refuel: skipped WAL balance check (rpc error)',
-      );
-      return;
+      if (swapped) {
+        const after = (await this.#readSessionWalBalance(sessionAddr)) ?? 0n;
+        if (!needsWalRefuel(after, minWal)) return;
+      }
     }
-    if (walBalance >= threshold) return;
 
-    // Resolve the exchange package ID (once).
+    const finalWal = (await this.#readSessionWalBalance(sessionAddr)) ?? 0n;
+    if (needsWalRefuel(finalWal, minWal)) {
+      throw new Error(
+        `WAL refuel exhausted for Walrus upload (have ${finalWal} FROST, need ${minWal})`,
+      );
+    }
+  }
+
+  async #executeWalRefuelSwap(
+    signer: Awaited<ReturnType<typeof loadSessionKeypair>>,
+    epoch: bigint,
+    args: { targetFrost: bigint; maxSwapMist: bigint; walBalance: bigint },
+  ): Promise<boolean> {
+    const exchangeIds = this.#config.walExchangeIds;
+    if (!exchangeIds || exchangeIds.length === 0) return false;
+
+    const sessionAddr = signer.toSuiAddress();
+    let suiBalance = (await this.#readSessionSuiBalance(sessionAddr)) ?? 0n;
+    let swapAmount = computeWalSwapAmountMist({
+      suiBalanceMist: suiBalance,
+      configuredMaxMist: args.maxSwapMist,
+    });
+
+    if (swapAmount === null) {
+      const needed = suiNeededBeforeWalSwap(
+        args.maxSwapMist > MIN_WAL_REFUEL_SWAP_MIST ? args.maxSwapMist : MIN_WAL_REFUEL_SWAP_MIST,
+      );
+      if (suiBalance < needed) {
+        const pullAmount = this.#config.refuelAmountMist ?? DEFAULT_REFUEL_AMOUNT_MIST;
+        await this.#pullOperationalSui(signer, epoch, pullAmount, suiBalance, 'auto-wal-refuel');
+        suiBalance = (await this.#readSessionSuiBalance(sessionAddr)) ?? suiBalance;
+        swapAmount = computeWalSwapAmountMist({
+          suiBalanceMist: suiBalance,
+          configuredMaxMist: args.maxSwapMist,
+        });
+      }
+    }
+
+    if (swapAmount === null) {
+      this.#logger.warn(
+        {
+          sessionAddr,
+          suiBalance: suiBalance.toString(),
+          walBalance: args.walBalance.toString(),
+          targetFrost: args.targetFrost.toString(),
+        },
+        'auto-wal-refuel: session SUI too low for swap even after treasury pull',
+      );
+      return false;
+    }
+
     if (!this.#walExchangePkg) {
       const explicitPkg = this.#config.walExchangePkg;
       if (explicitPkg) {
@@ -885,30 +1013,30 @@ export class VaultRuntime {
           });
           const objType = obj.data?.type;
           if (objType) {
-            const pkgId = objType.split('::')[0];
-            this.#walExchangePkg = pkgId;
+            this.#walExchangePkg = objType.split('::')[0];
           }
         } catch {
-          // Fall through — we'll try next tick
+          this.#logger.warn('auto-wal-refuel: could not resolve exchange package ID; skipping');
+          return false;
         }
       }
       if (!this.#walExchangePkg) {
         this.#logger.warn('auto-wal-refuel: could not resolve exchange package ID; skipping');
-        return;
+        return false;
       }
     }
 
     this.#logger.info(
       {
         sessionAddr,
-        walBalance: walBalance.toString(),
-        threshold: threshold.toString(),
+        walBalance: args.walBalance.toString(),
+        targetFrost: args.targetFrost.toString(),
         swapAmount: swapAmount.toString(),
+        suiBalance: suiBalance.toString(),
       },
-      'auto-wal-refuel: WAL below threshold; swapping SUI → WAL',
+      'auto-wal-refuel: swapping SUI → WAL',
     );
 
-    // Try each exchange object until one succeeds (liquidity may vary).
     for (const exchangeId of exchangeIds) {
       try {
         const tx = new Transaction();
@@ -926,10 +1054,10 @@ export class VaultRuntime {
         });
         await this.#client.waitForTransaction({ digest: result.digest });
         this.#logger.info(
-          { txDigest: result.digest, exchangeId },
+          { txDigest: result.digest, exchangeId, swapAmount: swapAmount.toString() },
           'auto-wal-refuel: SUI → WAL exchange succeeded',
         );
-        return;
+        return true;
       } catch (err) {
         this.#logger.warn(
           { err: err instanceof Error ? err.message : String(err), exchangeId },
@@ -937,7 +1065,46 @@ export class VaultRuntime {
         );
       }
     }
-    this.#logger.warn('auto-wal-refuel: all exchange objects failed; Walrus uploads may fail this tick');
+    this.#logger.warn('auto-wal-refuel: all exchange objects failed');
+    return false;
+  }
+
+  async #uploadReportEnsuringWal(args: {
+    report: AuditReport;
+    signer: Awaited<ReturnType<typeof loadSessionKeypair>>;
+    currentEpoch: bigint;
+    seal?: SealUploadOptions | undefined;
+  }): Promise<Awaited<ReturnType<typeof uploadReportBlob>>> {
+    const epochs = this.#config.walrusEpochs ?? DEFAULT_WALRUS_EPOCHS;
+    const payloadBytes = new TextEncoder().encode(args.report.markdown).length;
+    const requiredWal = estimateWalFrostForUpload(payloadBytes, epochs);
+
+    await this.#ensureWalForUpload(args.signer, args.currentEpoch, requiredWal);
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await uploadReportBlob({
+          suiClient: this.#client,
+          walrusNetwork: this.#config.walrusNetwork,
+          signer: args.signer,
+          report: args.report,
+          epochs,
+          ...(args.seal ? { seal: args.seal } : {}),
+        });
+      } catch (err) {
+        if (isInsufficientWalBalanceError(err) && attempt === 0) {
+          const bumped = requiredWal + requiredWal / 2n;
+          this.#logger.warn(
+            { requiredWal: requiredWal.toString(), bumped: bumped.toString() },
+            'walrus upload WAL shortfall after refuel; retrying with larger target',
+          );
+          await this.#ensureWalForUpload(args.signer, args.currentEpoch, bumped);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('walrus upload failed after WAL refuel retries');
   }
 
   async #executeNoop(
@@ -948,20 +1115,14 @@ export class VaultRuntime {
     alpha: { posBps: number; negBps: number },
     royaltyMist: bigint,
   ): Promise<ExecutionReceipt> {
-    // Try to publish the rationale to Walrus, but degrade gracefully if
-    // the session is out of WAL tokens or the Walrus publisher is down.
-    // The on-chain attestation + record_tick_performance still land, so
-    // the dashboard's Runtime Health panel + strategy reputation update
-    // regardless.
+    // Publish audit blob to Walrus — WAL is prefunded adaptively.
     const sealOpts = this.#sealOptions();
     let upload: Awaited<ReturnType<typeof uploadReportBlob>> | null = null;
     try {
-      upload = await uploadReportBlob({
-        suiClient: this.#client,
-        walrusNetwork: this.#config.walrusNetwork,
-        signer,
+      upload = await this.#uploadReportEnsuringWal({
         report,
-        epochs: this.#config.walrusEpochs ?? DEFAULT_WALRUS_EPOCHS,
+        signer,
+        currentEpoch,
         ...(sealOpts ? { seal: sealOpts } : {}),
       });
     } catch (err) {
@@ -1329,7 +1490,7 @@ function symbolFromTypeTag(typeTag: string): string {
 function walrusFailureHint(errorMessage: string): string {
   const m = errorMessage.toLowerCase();
   if (m.includes('insufficient balance') && m.includes('wal')) {
-    return 'session has no WAL — auto-wal-refuel should top up next tick, or fund manually with `walrus get-wal`';
+    return 'session WAL still insufficient after adaptive auto-refuel — check treasury operational budget / pull_operational_funds cap';
   }
   if (m.includes('too many failures') || m.includes('too many invalid confirmations')) {
     return 'transient testnet Walrus storage-node consensus failure — WAL may have been partially spent; next tick will retry';

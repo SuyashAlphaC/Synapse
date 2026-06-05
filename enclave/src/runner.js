@@ -3,7 +3,9 @@
 // Given a Walrus blob id + the on-chain code_hash, this fetches the strategy
 // bundle, verifies its sha256 matches the code_hash (so the enclave runs the
 // EXACT published code, not something swapped in), dynamically imports it, and
-// runs its `evaluate(input)`. The enclave then signs the code_hash + a hash of
+// runs its `evaluate(input, undefined)`. LangGraph bundles ship with deps
+// inlined; graphs read cross-tick state from input.memory (recalled before
+// the enclave call). The enclave then signs the code_hash + a hash of
 // the decision — so ANY strategy published to the marketplace is attestable with
 // no enclave change.
 //
@@ -60,6 +62,6 @@ export async function runStrategy({ blobId, codeHashHex, network, input }) {
     throw new Error('strategy bundle has no default export with evaluate()');
   }
 
-  const decision = await strategy.evaluate(input);
+  const decision = await strategy.evaluate(input, undefined);
   return { decision, codeHash: sha256(bytes) };
 }

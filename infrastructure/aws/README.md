@@ -54,6 +54,34 @@ for images, IAM roles). You only do this once per account+region.
 
 ## Deploy a vault
 
+### Recommended: dashboard “Enable hosted runtime”
+
+Works on **Vercel** (serverless) and self-hosted Node. Set in Vercel → Settings → Environment Variables (or `.env.local` locally):
+
+```bash
+SYNAPSE_HOSTED_RUNTIME_ENABLED=true
+AWS_ACCESS_KEY_ID=…
+AWS_SECRET_ACCESS_KEY=…
+SYNAPSE_HOSTED_RUNTIME_AWS_REGION=us-east-1
+# Required on Vercel — one shared image for all vaults (no Docker on serverless):
+SYNAPSE_HOSTED_RUNTIME_ECR_IMAGE=954257023818.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-954257023818-us-east-1:9f1945bb5441a2f4079cc18d225d2daec98804f47bf9e8537719ce96a5f295ad
+```
+
+The enable API upserts Secrets Manager secrets and starts a **CloudFormation** stack (Fargate + EventBridge) via the AWS SDK — no `cdk deploy` on the dashboard host. Typical provisioning time **2–4 minutes**.
+
+**IAM permissions** for the deployer user: `cloudformation:*` (scoped to `SynapseVaultRuntime-*`), `ecs:*`, `events:*`, `logs:*`, `ec2:DescribeVpcs`, `ec2:DescribeSubnets`, `iam:PassRole`, `secretsmanager:*` on `synapse/vault/*`.
+
+Optional overrides if your account has no default VPC:
+
+```bash
+SYNAPSE_HOSTED_RUNTIME_VPC_ID=vpc-…
+SYNAPSE_HOSTED_RUNTIME_SUBNET_IDS=subnet-a,subnet-b,…
+```
+
+On `/dashboard/<vaultId>`, open **Hosted runtime**, upload the session `.key`, check consent, and click **Enable hosted runtime**.
+
+### Manual operator path (CLI)
+
 1. **Rotate the session key** in the dashboard. Save the downloaded
    `synapse-session-<hash>.key` file somewhere local — say
    `~/keys/vault-80c12701.key`.
@@ -128,6 +156,7 @@ for images, IAM roles). You only do this once per account+region.
 | Trigger a manual tick | `aws events put-events --entries '[{"Source":"local","DetailType":"manual"}]'` plus a target — or just delete + recreate the rule |
 | Pause autonomy | Disable the EventBridge rule via console or `aws events disable-rule --name <rule>` |
 | Rotate the session key | Rotate in dashboard → re-run `push-secrets.sh` with the new `.key` file — CDK stack picks up the new value on the next tick (no redeploy) |
+| Session WAL for artifacts | Runtime auto-swaps SUI→WAL before each upload (adaptive refuel). Ensure treasury operational budget allows `pull_operational_funds` when session SUI is low |
 | Destroy a stack | `npx cdk destroy SynapseVaultRuntime-<suffix>` |
 
 ## Cost estimate
@@ -191,6 +220,16 @@ CDK builds the Docker image locally before pushing to ECR. If
 
 ```bash
 docker build -f sdk/packages/vault/Dockerfile -t synapse-runtime-debug .
+```
+
+**`ENAMETOOLONG` / nested `cdk.out/asset.../cdk.out/...` paths**
+
+A prior failed deploy left `infrastructure/aws/cdk.out` inside the Docker
+asset staging tree. CDK then copies `cdk.out` into itself recursively. Fix:
+
+```bash
+rm -rf infrastructure/aws/cdk.out
+npx cdk deploy …   # re-run; vault-runtime-stack excludes cdk.out going forward
 ```
 
 ## Why ECS Fargate and not Lambda

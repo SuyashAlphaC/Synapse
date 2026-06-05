@@ -51,6 +51,11 @@ export interface VaultRuntimeStackProps extends StackProps {
   enclaveUrl?: string | null;
   /** On-chain `Enclave` object id — only for attested vaults. Optional. */
   enclaveObjectId?: string | null;
+  /**
+   * When set, skip the per-stack Docker build and use this image URI
+   * (shared ECR tag). Used by the dashboard hosted-runtime provisioner.
+   */
+  runtimeImageUri?: string | null;
 }
 
 export class VaultRuntimeStack extends Stack {
@@ -63,12 +68,35 @@ export class VaultRuntimeStack extends Stack {
       );
     }
 
-    // ---------- Image build ----------
-    const image = new DockerImageAsset(this, 'RuntimeImage', {
-      directory: REPO_ROOT,
-      file: 'sdk/packages/vault/Dockerfile',
-      platform: Platform.LINUX_AMD64,
-    });
+    // ---------- Container image ----------
+    const containerImage = props.runtimeImageUri
+      ? ecs.ContainerImage.fromRegistry(props.runtimeImageUri)
+      : ecs.ContainerImage.fromDockerImageAsset(
+          new DockerImageAsset(this, 'RuntimeImage', {
+            directory: REPO_ROOT,
+            file: 'sdk/packages/vault/Dockerfile',
+            platform: Platform.LINUX_AMD64,
+            // CDK stages the whole repo into cdk.out before `docker build`. Without
+            // these excludes, a prior failed deploy's cdk.out is copied into itself
+            // recursively → ENAMETOOLONG.
+            exclude: [
+              'infrastructure/aws/cdk.out',
+              '**/cdk.out',
+              '**/.git',
+              '**/node_modules',
+              'web/dashboard',
+              'web/marketing',
+              'infrastructure/aws/node_modules',
+              'enclave',
+              'move',
+              'examples',
+              'docs',
+              '**/.next',
+              '**/.turbo',
+              '**/coverage',
+            ],
+          }),
+        );
 
     // ---------- Network ----------
     // Default VPC keeps cost low and avoids NAT gateway charges for the
@@ -120,7 +148,7 @@ export class VaultRuntimeStack extends Stack {
     });
 
     const container = taskDefinition.addContainer('Runtime', {
-      image: ecs.ContainerImage.fromDockerImageAsset(image),
+      image: containerImage,
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'tick',
         logGroup,
@@ -129,6 +157,9 @@ export class VaultRuntimeStack extends Stack {
         SYNAPSE_AGENT_ID: props.agentId,
         SYNAPSE_PACKAGE_ID: props.packageId,
         SYNAPSE_WALRUS_NETWORK: 'testnet',
+        // Adaptive WAL refuel — sized for ~0.05 SUI session balances.
+        SYNAPSE_WAL_REFUEL_AMOUNT: '50000000',
+        SYNAPSE_WAL_REFUEL_THRESHOLD: '10000000',
         SYNAPSE_TICK_INTERVAL_MS: String(
           Math.max(60, props.tickIntervalMinutes * 60) * 1000,
         ),

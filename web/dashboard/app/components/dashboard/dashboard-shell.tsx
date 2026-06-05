@@ -12,6 +12,7 @@ import { PolicyPanel } from './policy-panel';
 import { RunTickButton } from './run-tick-button';
 import { SessionKeyPanel } from './session-key-panel';
 import { DepositPanel } from './deposit-panel';
+import { WithdrawPanel } from './withdraw-panel';
 import { FundSessionPanel } from './fund-session-panel';
 import { RuntimeHealthPanel } from './runtime-health-panel';
 import dynamic from 'next/dynamic';
@@ -41,7 +42,19 @@ const MemWalRecallPanel = dynamic(
       <div className="card-flat p-6 text-sm text-ink-soft">Loading memory…</div>
     ),
   },
-);import { CodeTag } from '../ui/code-tag';
+);
+
+const HostedRuntimePanel = dynamic(
+  () => import('./hosted-runtime-panel').then((m) => m.HostedRuntimePanel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="card-flat p-6 text-sm text-ink-soft">Loading hosted runtime…</div>
+    ),
+  },
+);
+
+import { CodeTag } from '../ui/code-tag';
 import {
   SAMPLE_REBALANCE_HISTORY,
   SAMPLE_TIMELINE,
@@ -225,6 +238,13 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
           />
           <PolicyPanel {...(live ? { live } : {})} />
           {liveVault && <DepositPanel vaultId={liveVault.agentId} />}
+          {liveVault && live && live.pricedHoldings.some((h) => h.amount > 0n) && (
+            <WithdrawPanel
+              vaultId={liveVault.agentId}
+              owner={live.identity.owner}
+              holdings={live.pricedHoldings}
+            />
+          )}
           {live && live.identity.sessionAddr.length > 0 && (
             <FundSessionPanel sessionAddr={live.identity.sessionAddr} />
           )}
@@ -245,6 +265,12 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
               {...(live.identity.strategyId
                 ? { strategyId: live.identity.strategyId }
                 : {})}
+            />
+          )}
+          {liveVault && (
+            <HostedRuntimePanel
+              vaultId={liveVault.agentId}
+              needsAnthropicKey={hiredStrategy ? requiresWalrusConsent(hiredStrategy) : false}
             />
           )}
           {liveVault && <InBrowserRuntimePanel vaultId={liveVault.agentId} />}

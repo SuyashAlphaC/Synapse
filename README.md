@@ -66,7 +66,7 @@ Mapped 1:1 to the official problem statement. **LIVE** = exercised on testnet (t
 |---|---|---|
 | **Long-term, verifiable memory** | **LIVE** | MemWal `recall`/`remember` every tick (`sdk/packages/memwal-bridge`). Strategy counters/EMA/decisions persist across ticks and process restarts. Browse + semantically query a vault's memory in the **MemWal recall panel** (dashboard). |
 | **Persistent data/files via Walrus** | **LIVE** | A markdown audit report is uploaded to Walrus **every tick**; an on-chain `ArtifactRef` (`artifacts.move`) links the blob + sha256. Browse and open the raw blob from the **Artifacts panel**. |
-| **Integrations/tooling for devs** | **LIVE** | `@synapse-core/adapter-langgraph` — a LangGraph `BaseStore` backed by MemWal/Walrus. Drop it into any LangGraph agent for Walrus-durable memory. 8 unit tests + runnable example + README. |
+| **Integrations/tooling for devs** | **LIVE** | `@synapse-core/adapter-langgraph` — LangGraph `SynapseStore` + vault runtime `createLangGraphStrategy` (production tick + Nautilus attestation). Server-side bundler inlines LangGraph deps for Walrus publish. |
 
 ### Especially-interested-in
 
@@ -157,7 +157,7 @@ Mint wizard (zkLogin or wallet), marketplace with real backtest curves, per-vaul
 
 1. Load on-chain agent state + Pyth prices + DeepBook spreads.
 2. **Recall** the strategy's memory from MemWal; **consume** any new cross-agent signals from the inbox channel as memory facts.
-3. **Reason**: the strategy emits a decision — deterministic, the LLM advisor over recalled memory, or (attested vaults) the **enclave** which signs the target weight.
+3. **Reason**: the strategy emits a decision — deterministic TypeScript, a **LangGraph** workflow (`createLangGraphStrategy`), the LLM advisor over recalled memory, or (attested vaults) the **enclave** which runs the hash-verified Walrus bundle (including LangGraph) and signs the decision.
 4. **Act**: one PTB — `[attest_decision verify]` → policy-gated DeepBook swap → `record_tick_performance` → capped royalty payout → `log_action` + `ArtifactRef`.
 5. Upload the rationale to **Walrus**; **emit** a cross-agent signal on rebalance.
 6. **Remember**: persist the decision outcome to MemWal for the next tick.
