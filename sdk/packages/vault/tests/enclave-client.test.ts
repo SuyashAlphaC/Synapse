@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { requestAttestedDecision, hexToBytes, type EnclaveAdvisorInput } from '../src/runtime/enclave-client.js';
+import { requestAttestedDecision, hexToBytes } from '../src/runtime/enclave-client.js';
+import type { StrategyInput } from '../src/types.js';
 
-const INPUT: EnclaveAdvisorInput = {
-  baseSymbol: 'SUI',
-  quoteSymbol: 'USDC',
-  baseWeight: 0.6,
-  basePriceUsd: 1.1,
-  quotePriceUsd: 1,
+const INPUT = {
+  vaultId: '0xvault',
   navUsd: 100,
-  epoch: 100,
-  memoryFacts: [],
-};
+  currentEpoch: 100n,
+  holdings: [],
+  market: { prices: { SUI: 1 }, pools: [], asOf: '0' },
+  memory: { strategyId: 'dca', counters: {}, facts: [] },
+  policy: { spendPerEpochUsd: 1000, expiryEpoch: 1_000_000n, revoked: false, approvedPackages: [] },
+} as unknown as StrategyInput;
 
 function fakeFetch(body: unknown, ok = true, status = 200): typeof fetch {
   return (async () =>
@@ -22,20 +22,32 @@ function fakeFetch(body: unknown, ok = true, status = 200): typeof fetch {
     }) as unknown as Response) as unknown as typeof fetch;
 }
 
+const base = {
+  enclaveUrl: 'http://enclave:3000/',
+  vaultId: '0xvault',
+  epoch: 100n,
+  blobId: 'blob123',
+  codeHashHex: 'aa'.repeat(32),
+  network: 'testnet' as const,
+  input: INPUT,
+};
+
 describe('requestAttestedDecision', () => {
-  it('parses a well-formed signed decision', async () => {
+  it('parses the enclave-run decision + hashes', async () => {
     const res = await requestAttestedDecision({
-      enclaveUrl: 'http://enclave:3000/',
-      vaultId: '0xvault',
-      epoch: 100n,
-      input: INPUT,
+      ...base,
       fetchImpl: fakeFetch({
-        decision: { targetWeightMilli: 500, confidence: 0.8, rationale: 'r', inputsHashHex: 'ab' },
+        decision: JSON.stringify({ kind: 'noop', rationale: 'held' }),
+        decision_hash: 'de',
+        code_hash: 'aa'.repeat(32),
+        inputs_hash: 'ab',
         timestamp_ms: 1744038900000,
         signature: 'cd',
       }),
     });
-    expect(res.targetWeightMilli).toBe(500);
+    expect(res.decision.kind).toBe('noop');
+    expect(res.codeHashHex).toBe('aa'.repeat(32));
+    expect(res.decisionHashHex).toBe('de');
     expect(res.inputsHashHex).toBe('ab');
     expect(res.signatureHex).toBe('cd');
     expect(res.timestampMs).toBe(1744038900000);
@@ -43,24 +55,15 @@ describe('requestAttestedDecision', () => {
 
   it('throws on a non-OK response (attested vault must skip, not fall back)', async () => {
     await expect(
-      requestAttestedDecision({
-        enclaveUrl: 'http://enclave:3000',
-        vaultId: '0xvault',
-        epoch: 100n,
-        input: INPUT,
-        fetchImpl: fakeFetch({ error: 'down' }, false, 503),
-      }),
+      requestAttestedDecision({ ...base, fetchImpl: fakeFetch({ error: 'down' }, false, 503) }),
     ).rejects.toThrow(/enclave \/decide 503/);
   });
 
-  it('throws on a malformed decision', async () => {
+  it('throws on a malformed response', async () => {
     await expect(
       requestAttestedDecision({
-        enclaveUrl: 'http://enclave:3000',
-        vaultId: '0xvault',
-        epoch: 100n,
-        input: INPUT,
-        fetchImpl: fakeFetch({ decision: { targetWeightMilli: 'nope' }, timestamp_ms: 1, signature: 'x' }),
+        ...base,
+        fetchImpl: fakeFetch({ decision: 123, timestamp_ms: 1, signature: 'x' }),
       }),
     ).rejects.toThrow(/malformed/);
   });

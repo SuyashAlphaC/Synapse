@@ -68,12 +68,7 @@ import type {
   StrategyDecision,
 } from '../types.js';
 import { buildRebalancePTB, makeExecutedTrade } from '../executor.js';
-import { conservativeRebalancer } from '../strategies/conservative-rebalancer.js';
-import {
-  requestAttestedDecision,
-  hexToBytes,
-  type EnclaveAdvisorInput,
-} from './enclave-client.js';
+import { requestAttestedDecision, hexToBytes } from './enclave-client.js';
 import { renderReport } from '../report.js';
 import { loadAgentState } from './state.js';
 import { loadMarketSnapshot, requiredPoolsForStrategy } from './market.js';
@@ -85,17 +80,13 @@ import {
   rememberStrategyOutcome,
 } from './memory.js';
 import { uploadReportBlob, parseArtifactSlot, type SealUploadOptions } from './publisher.js';
-import {
-  deepbookSwap,
-  SUI_TYPE_TAG_TESTNET,
-  USDC_TYPE_TAG_TESTNET,
-  SUI_USDC_POOL_ID_TESTNET,
-} from './deepbook.js';
+import { deepbookSwap } from './deepbook.js';
 import { deepbookPackageForRuntime } from './config.js';
 import { loadSessionKeypair, loadMemwalDelegateFromKeyFile } from './keypair.js';
 import { createLogger, type VaultLogger } from './logger.js';
 import type { RuntimeConfig } from './config.js';
 import { resolveStrategyWithWalrus } from './strategy-resolver.js';
+import { fetchStrategyMeta } from './walrus-loader.js';
 import { EnvSecretsProvider, type SecretsProvider } from './secrets.js';
 import {
   consumeSignals,
@@ -570,7 +561,7 @@ export class VaultRuntime {
     let decision: StrategyDecision;
     let attestation: RebalanceAttestation | undefined;
     if (this.#config.enclaveUrl && this.#config.enclaveObjectId) {
-      const result = await this.#attestedDecision(input, overrides);
+      const result = await this.#attestedDecision(input, agent.identity.strategyId);
       decision = result.decision;
       attestation = result.attestation;
     } else {
@@ -1085,76 +1076,47 @@ export class VaultRuntime {
    * browser path and existing operators upload plaintext unchanged.
    */
   /**
-   * Attested-execution decision path. Calls the enclave for a signed target
-   * weight, drives the deterministic rebalancer with it, and returns the
-   * attestation to gate the rebalance PTB on-chain. Throws (→ skipped tick) if
-   * the enclave is unreachable — an attested vault never trades unattested.
+   * Attested-execution decision path (strategy-agnostic). Sends the vault's HIRED
+   * strategy (Walrus blob + on-chain code_hash) + the full input to the enclave,
+   * which runs that exact bundle inside the TEE and signs (code_hash ‖
+   * decision_hash ‖ inputs_hash). The runtime executes the returned decision; the
+   * signature gates the rebalance PTB on-chain. Throws (→ skipped tick) if the
+   * enclave is unreachable or the strategy has no bundle — an attested vault never
+   * trades unattested.
    */
   async #attestedDecision(
     input: StrategyInput,
-    overrides: { quoteTypeTag?: string; quoteSymbol?: string; poolId?: string },
+    strategyId: string,
   ): Promise<{ decision: StrategyDecision; attestation: RebalanceAttestation }> {
-    const baseTypeTag = SUI_TYPE_TAG_TESTNET;
-    const baseSymbol = 'SUI';
-    const quoteTypeTag = overrides.quoteTypeTag ?? USDC_TYPE_TAG_TESTNET;
-    const quoteSymbol = overrides.quoteSymbol ?? 'USDC';
-    const poolId = overrides.poolId ?? SUI_USDC_POOL_ID_TESTNET;
-
-    const base = input.holdings.find((h) => h.coinTypeTag === baseTypeTag);
-    const quote = input.holdings.find((h) => h.coinTypeTag === quoteTypeTag);
-    const totalUsd = (base?.valueUsd ?? 0) + (quote?.valueUsd ?? 0);
-    const advisorInput: EnclaveAdvisorInput = {
-      baseSymbol,
-      quoteSymbol,
-      baseWeight: totalUsd > 0 ? (base?.valueUsd ?? 0) / totalUsd : 0,
-      basePriceUsd: base?.priceUsd ?? input.market.prices[baseSymbol] ?? 0,
-      quotePriceUsd: quote?.priceUsd ?? input.market.prices[quoteSymbol] ?? 1,
-      navUsd: input.navUsd,
-      epoch: Number(input.currentEpoch),
-      memoryFacts: input.memory.facts,
-    };
+    const meta = await fetchStrategyMeta(this.#client, strategyId);
+    if (!meta || meta.sourceWalrusBlob.length === 0) {
+      throw new Error(
+        `attested vault: strategy ${strategyId} has no Walrus bundle / code_hash to attest`,
+      );
+    }
 
     const dec = await requestAttestedDecision({
       enclaveUrl: this.#config.enclaveUrl!,
       vaultId: this.#config.agentId,
       epoch: input.currentEpoch,
-      input: advisorInput,
+      blobId: meta.sourceWalrusBlob,
+      codeHashHex: meta.codeHashHex,
+      network: this.#config.walrusNetwork,
+      input,
     });
 
-    const targetBaseWeight = Math.max(0, Math.min(1, dec.targetWeightMilli / 1000));
-    const rebal = conservativeRebalancer({
-      baseTypeTag,
-      baseSymbol,
-      quoteTypeTag,
-      quoteSymbol,
-      targetBaseWeight,
-      driftThreshold: 0.05,
-      poolId,
-      slippageTolerance: 0.005,
-    });
-    const base_decision = await rebal.evaluate(input);
-    const attestSignals = {
-      attested: true,
-      enclaveTargetWeight: targetBaseWeight,
-      enclaveConfidence: dec.confidence,
-    };
+    const attestedSignal = { attested: true } as const;
     const decision: StrategyDecision =
-      base_decision.kind === 'rebalance'
-        ? {
-            ...base_decision,
-            rationaleMarkdown: `### Attested AI decision (Nautilus)\n\n${dec.rationale}\n\n${base_decision.rationaleMarkdown}`,
-            signals: { ...base_decision.signals, ...attestSignals },
-          }
-        : {
-            ...base_decision,
-            rationale: `Attested AI: ${dec.rationale} — ${base_decision.rationale}`,
-            signals: { ...(base_decision.signals ?? {}), ...attestSignals },
-          };
+      dec.decision.kind === 'rebalance'
+        ? { ...dec.decision, signals: { ...dec.decision.signals, ...attestedSignal } }
+        : { ...dec.decision, signals: { ...(dec.decision.signals ?? {}), ...attestedSignal } };
 
     const attestation: RebalanceAttestation = {
       enclaveObjectId: this.#config.enclaveObjectId!,
+      strategyObjectId: strategyId,
       epoch: input.currentEpoch,
-      targetWeightMilli: dec.targetWeightMilli,
+      codeHash: hexToBytes(dec.codeHashHex),
+      decisionHash: hexToBytes(dec.decisionHashHex),
       inputsHash: hexToBytes(dec.inputsHashHex),
       timestampMs: BigInt(dec.timestampMs),
       signature: hexToBytes(dec.signatureHex),

@@ -1,93 +1,97 @@
-// Synapse decision enclave server.
+// Synapse decision enclave server — strategy-agnostic.
 //
-// Runs inside an attested AWS Nitro enclave (deployed via Marlin Oyster). Holds
-// an ephemeral secp256k1 signing key whose public key is bound to the enclave's
-// PCR measurement by the Nitro attestation document. Each `/decide` call runs the
-// advisor (Claude) over the host-supplied market + recalled memory, then signs a
-// `DecisionPayload` the Move contract verifies before the trade can execute.
+// Runs inside an attested AWS Nitro enclave (Marlin Oyster). Holds an ephemeral
+// secp256k1 signing key bound to the enclave's PCR measurement. Each /decide call
+// fetches the vault's HIRED strategy bundle from Walrus, verifies its sha256
+// against the on-chain code_hash, runs it inside the enclave, and signs
+// (code_hash ‖ decision_hash ‖ inputs_hash). `synapse_core::decision_attestation`
+// verifies that signature — and that the code_hash matches the registered
+// strategy — before the swap. Publishing a new strategy needs NO enclave change.
 //
-// Endpoints (the Oyster runtime also exposes `/attestation/hex` for registration):
+// Endpoints:
 //   GET  /health       -> liveness
-//   GET  /public-key   -> { public_key } compressed secp256k1 hex (for register_enclave)
-//   POST /decide       -> { decision, signature, timestamp_ms } over a signed DecisionPayload
+//   GET  /public-key   -> { public_key } compressed secp256k1 hex (for register)
+//   POST /decide       -> { decision, decision_hash, code_hash, inputs_hash, signature, timestamp_ms }
 
 import express from 'express';
 import fs from 'fs';
 import { sign, getPublicKey, hashes } from '@noble/secp256k1';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { hmac } from '@noble/hashes/hmac.js';
-import { advise } from './advisor.js';
+import { runStrategy } from './runner.js';
 import { serializeDecisionIntent } from './payload.js';
 
-// @noble/secp256k1 v3 needs these wired up explicitly.
 hashes.sha256 = sha256;
 hashes.hmacSha256 = (key, msg) => hmac(sha256, key, msg);
 
 let signingKey = null;
 
-/** Load a 32-byte secp256k1 private key from a file (mounted secret in Oyster). */
 function loadSigningKey(path) {
   const keyBytes = fs.readFileSync(path);
-  if (keyBytes.length !== 32) {
-    throw new Error(`expected 32-byte secp256k1 key, got ${keyBytes.length}`);
-  }
+  if (keyBytes.length !== 32) throw new Error(`expected 32-byte secp256k1 key, got ${keyBytes.length}`);
   getPublicKey(keyBytes); // validate
   return new Uint8Array(keyBytes);
 }
 
-/** Canonical sha256 of the advisor inputs — binds the reasoning to its inputs. */
-function inputsHash(input) {
-  return sha256(new TextEncoder().encode(JSON.stringify(input)));
+const hex = (b) => Buffer.from(b).toString('hex');
+
+// Shared bigint JSON codec — MUST match the runtime's enclave-client. Bigints are
+// encoded as { "$bigint": "123" } so StrategyInput/Decision survive the wire.
+function reviveBigints(_k, v) {
+  if (v && typeof v === 'object' && typeof v.$bigint === 'string') return BigInt(v.$bigint);
+  return v;
+}
+function replaceBigints(_k, v) {
+  return typeof v === 'bigint' ? { $bigint: v.toString() } : v;
 }
 
 const app = express();
-app.use(express.json({ limit: '256kb' }));
+app.use(express.json({ limit: '2mb' }));
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 app.get('/public-key', (_req, res) => {
-  const pk = getPublicKey(signingKey, true); // compressed (33 bytes)
-  res.json({ public_key: Buffer.from(pk).toString('hex') });
+  res.json({ public_key: hex(getPublicKey(signingKey, true)) });
 });
 
 app.post('/decide', async (req, res) => {
   try {
-    const { vaultId, epoch, input } = req.body ?? {};
-    if (!vaultId || epoch === undefined || !input) {
-      return res.status(400).json({ error: 'vaultId, epoch, input required' });
+    const { vaultId, epoch, codeHashHex, blobId, network, inputJson } = req.body ?? {};
+    if (!vaultId || epoch === undefined || !codeHashHex || !blobId || typeof inputJson !== 'string') {
+      return res.status(400).json({ error: 'vaultId, epoch, codeHashHex, blobId, inputJson required' });
     }
 
-    const rec = await advise(input, {});
-    if (!rec) {
-      return res.status(503).json({ error: 'advisor not configured or unparseable' });
-    }
+    const input = JSON.parse(inputJson, reviveBigints);
+    const { decision } = await runStrategy({
+      blobId,
+      codeHashHex,
+      network: network === 'mainnet' ? 'mainnet' : 'testnet',
+      input,
+    });
 
-    const targetWeightMilli = Math.max(0, Math.min(1000, Math.round(rec.targetBaseWeight * 1000)));
+    const decisionStr = JSON.stringify(decision, replaceBigints);
+    const codeHash = Uint8Array.from(Buffer.from(codeHashHex, 'hex'));
+    const decisionHash = sha256(new TextEncoder().encode(decisionStr));
+    const inputsHash = sha256(new TextEncoder().encode(inputJson)); // hash the exact bytes received
     const timestampMs = Date.now();
-    const hash = inputsHash(input);
 
-    // Serialize exactly as the Move contract will, then sign sha256(bytes).
     const messageBytes = serializeDecisionIntent({
       vaultId,
       epoch: BigInt(epoch),
-      targetWeightMilli,
-      inputsHash: hash,
+      codeHash,
+      decisionHash,
+      inputsHash,
       timestampMs: BigInt(timestampMs),
     });
-    const digest = sha256(messageBytes);
-    const signature = sign(digest, signingKey, { prehash: false });
+    const signature = sign(sha256(messageBytes), signingKey, { prehash: false });
 
     res.json({
-      decision: {
-        vaultId,
-        epoch,
-        targetWeightMilli,
-        inputsHashHex: Buffer.from(hash).toString('hex'),
-        confidence: rec.confidence,
-        rationale: rec.rationale,
-      },
+      decision: decisionStr,
+      decision_hash: hex(decisionHash),
+      code_hash: hex(codeHash),
+      inputs_hash: hex(inputsHash),
       timestamp_ms: timestampMs,
-      signature: Buffer.from(signature).toString('hex'),
+      signature: hex(signature),
     });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -101,8 +105,7 @@ function main() {
     process.exit(1);
   }
   signingKey = loadSigningKey(keyPath);
-  const pk = getPublicKey(signingKey, true);
-  console.log(`enclave public key: ${Buffer.from(pk).toString('hex')}`);
+  console.log(`enclave public key: ${hex(getPublicKey(signingKey, true))}`);
   const port = Number(process.env.PORT ?? 3000);
   app.listen(port, '0.0.0.0', () => console.log(`synapse decision enclave on 0.0.0.0:${port}`));
 }

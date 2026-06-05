@@ -25,6 +25,7 @@ use sui::ecdsa_k1;
 use sui::event;
 use synapse_core::enclave::{Self, Enclave, Cap, EnclaveConfig};
 use synapse_core::agent::{Self, AgentIdentity};
+use synapse_core::strategy_registry::{Self, Strategy};
 
 /// DEV / TESTNET ONLY. Register a local (non-TEE) enclave's public key, skipping
 /// Nitro attestation. Deployer-gated via the `Cap`. Use for free local-box demos;
@@ -39,6 +40,10 @@ entry fun register_dev_enclave(
 }
 
 const EInvalidAttestation: u64 = 0;
+/// The signed code_hash doesn't match the registered Strategy's code_hash.
+const ECodeHashMismatch: u64 = 1;
+/// The passed Strategy isn't the one the vault hired.
+const EStrategyMismatch: u64 = 2;
 
 /// Intent scope the enclave signs under. Must match `INTENT_SCOPE` in the Node
 /// enclave (`enclave/src/index.js`).
@@ -51,20 +56,26 @@ const INTENT_DECISION: u8 = 0;
 public struct DecisionEnclave has drop {}
 
 /// The decision the enclave signs. Field order + types MUST match the BCS layout
-/// the Node enclave serializes (`DecisionPayload` there).
+/// the Node enclave serializes (`DecisionPayload` there). Strategy-agnostic: the
+/// enclave runs the vault's HIRED strategy bundle and signs its `code_hash` plus
+/// a hash of the decision it produced — so any published strategy is attestable
+/// with NO enclave change.
 public struct DecisionPayload has copy, drop {
     vault_id: address,
     epoch: u64,
-    target_weight_milli: u64, // target base-asset weight × 1000 (0..=1000)
-    inputs_hash: vector<u8>,  // sha256 of the canonical advisor inputs
+    code_hash: vector<u8>,     // sha256 of the strategy bundle that ran (== Strategy.code_hash)
+    decision_hash: vector<u8>, // sha256 of the canonical decision the bundle produced
+    inputs_hash: vector<u8>,   // sha256 of the inputs the strategy reasoned over
 }
 
 /// Emitted on every successfully attested decision — the audit timeline renders
-/// this as a "decision provably produced by enclave <pk>" edge.
+/// this as a "decision provably produced by enclave <pk> running strategy
+/// <code_hash>" edge.
 public struct DecisionAttested has copy, drop {
     vault_id: address,
     epoch: u64,
-    target_weight_milli: u64,
+    code_hash: vector<u8>,
+    decision_hash: vector<u8>,
     inputs_hash: vector<u8>,
     timestamp_ms: u64,
 }
@@ -101,36 +112,50 @@ public fun verify_decision(
     enclave: &Enclave<DecisionEnclave>,
     vault_id: address,
     epoch: u64,
-    target_weight_milli: u64,
+    code_hash: vector<u8>,
+    decision_hash: vector<u8>,
     inputs_hash: vector<u8>,
     timestamp_ms: u64,
     signature: &vector<u8>,
 ): bool {
-    let payload = DecisionPayload { vault_id, epoch, target_weight_milli, inputs_hash };
+    let payload = DecisionPayload { vault_id, epoch, code_hash, decision_hash, inputs_hash };
     enclave.verify_signature(INTENT_DECISION, timestamp_ms, payload, signature)
 }
 
 /// The gate. Aborts unless the registered enclave signed a decision for THIS
-/// vault (the signed `vault_id` is derived on-chain from the AgentIdentity, so a
-/// decision signed for another vault can't be replayed here). On success, stamps
-/// the vault as attested for `epoch` — `wallet::spend` checks that stamp, so a
-/// `requires_attestation` vault can only trade after this call lands in the same
-/// PTB. Emits `DecisionAttested` for the audit timeline.
+/// vault, running THIS vault's hired strategy. Checks, in order:
+///   1. `strategy` is the one the vault hired (`identity.strategy_id`),
+///   2. the signed `code_hash` equals the registered strategy's on-chain
+///      `code_hash` — i.e. the enclave ran the exact published bundle, and
+///   3. the enclave signature is valid over the decision (vault derived on-chain,
+///      so it can't be replayed for another vault).
+/// On success, stamps the vault as attested for `epoch` — `wallet::spend` checks
+/// that stamp, so a `requires_attestation` vault can only trade after this call
+/// lands in the same PTB. Emits `DecisionAttested`.
 public fun assert_decision_attested(
     enclave: &Enclave<DecisionEnclave>,
     identity: &mut AgentIdentity,
+    strategy: &Strategy,
     epoch: u64,
-    target_weight_milli: u64,
+    code_hash: vector<u8>,
+    decision_hash: vector<u8>,
     inputs_hash: vector<u8>,
     timestamp_ms: u64,
     signature: vector<u8>,
 ) {
+    assert!(
+        strategy_registry::strategy_id(strategy) == agent::strategy_id(identity),
+        EStrategyMismatch,
+    );
+    assert!(code_hash == *strategy_registry::code_hash(strategy), ECodeHashMismatch);
+
     let vault_id = object::id_address(identity);
     let ok = verify_decision(
         enclave,
         vault_id,
         epoch,
-        target_weight_milli,
+        code_hash,
+        decision_hash,
         inputs_hash,
         timestamp_ms,
         &signature,
@@ -140,7 +165,8 @@ public fun assert_decision_attested(
     event::emit(DecisionAttested {
         vault_id,
         epoch,
-        target_weight_milli,
+        code_hash,
+        decision_hash,
         inputs_hash,
         timestamp_ms,
     });
@@ -150,8 +176,10 @@ public fun assert_decision_attested(
 entry fun attest_decision(
     enclave: &Enclave<DecisionEnclave>,
     identity: &mut AgentIdentity,
+    strategy: &Strategy,
     epoch: u64,
-    target_weight_milli: u64,
+    code_hash: vector<u8>,
+    decision_hash: vector<u8>,
     inputs_hash: vector<u8>,
     timestamp_ms: u64,
     signature: vector<u8>,
@@ -159,8 +187,10 @@ entry fun attest_decision(
     assert_decision_attested(
         enclave,
         identity,
+        strategy,
         epoch,
-        target_weight_milli,
+        code_hash,
+        decision_hash,
         inputs_hash,
         timestamp_ms,
         signature,
@@ -179,56 +209,63 @@ use synapse_core::enclave::IntentMessage;
 #[test]
 fun decision_bcs_is_deterministic_and_field_sensitive() {
     let vault = @0x1234;
-    let base = bcs::to_bytes(&make_intent(vault, 100, 500, b"hash"));
+    let base = bcs::to_bytes(&make_intent(vault, 100, b"code", b"dec", b"in"));
     // Same inputs -> identical bytes.
-    assert!(base == bcs::to_bytes(&make_intent(vault, 100, 500, b"hash")), 0);
+    assert!(base == bcs::to_bytes(&make_intent(vault, 100, b"code", b"dec", b"in")), 0);
     // Each field flip changes the serialization.
-    assert!(base != bcs::to_bytes(&make_intent(@0x5678, 100, 500, b"hash")), 1);
-    assert!(base != bcs::to_bytes(&make_intent(vault, 101, 500, b"hash")), 2);
-    assert!(base != bcs::to_bytes(&make_intent(vault, 100, 501, b"hash")), 3);
-    assert!(base != bcs::to_bytes(&make_intent(vault, 100, 500, b"hesh")), 4);
+    assert!(base != bcs::to_bytes(&make_intent(@0x5678, 100, b"code", b"dec", b"in")), 1);
+    assert!(base != bcs::to_bytes(&make_intent(vault, 101, b"code", b"dec", b"in")), 2);
+    assert!(base != bcs::to_bytes(&make_intent(vault, 100, b"CODE", b"dec", b"in")), 3);
+    assert!(base != bcs::to_bytes(&make_intent(vault, 100, b"code", b"DEC", b"in")), 4);
+    assert!(base != bcs::to_bytes(&make_intent(vault, 100, b"code", b"dec", b"IN")), 5);
 }
 
 #[test_only]
 fun make_intent(
     vault_id: address,
     epoch: u64,
-    target_weight_milli: u64,
+    code_hash: vector<u8>,
+    decision_hash: vector<u8>,
     inputs_hash: vector<u8>,
 ): IntentMessage<DecisionPayload> {
     enclave::new_intent_message_for_testing(
         INTENT_DECISION,
         1_744_038_900_000,
-        DecisionPayload { vault_id, epoch, target_weight_milli, inputs_hash },
+        DecisionPayload { vault_id, epoch, code_hash, decision_hash, inputs_hash },
     )
 }
 
 // Cross-stack crypto contract: a signature produced by the Node enclave
-// (enclave/gen_fixture.mjs, deterministic key 0x01..0x20) must verify on-chain.
-// If the BCS layout or hashing ever drifts between Node and Move, this fails.
+// (enclave/scripts/gen-fixture.mjs, deterministic key 0x01..0x20) must verify
+// on-chain. If the BCS layout or hashing ever drifts between Node and Move,
+// this fails.
 #[test]
 fun verifies_node_signed_decision() {
     let mut ctx = tx_context::dummy();
     let pk = x"0284bf7562262bbd6940085748f3be6afa52ae317155181ece31b66351ccffa4b0";
     let enclave = enclave::new_enclave_for_testing<DecisionEnclave>(pk, &mut ctx);
+    let code_hash = x"60e54b7d2880f4b7990f7c2a7ef8a32413647ab821f02be8b94ef372f3f19e46";
+    let decision_hash = x"1da503326fead9f8caddfe697b3b9507bb51ae24422a0f65673680ac2c42cf47";
     let inputs_hash = x"f43c09c97259c438778fbff22b4a9941370439e1fb96a35682d0e3be68788da8";
-    let signature = x"cde98f205ae4cef4da644f0b9a77739ec8ffbde8a4c60da071ba33596f6ee4f3656bd50e37b15efd5f02062b6d40a03b299b4281c08f4ef24d109b0b333f7ce6";
+    let signature = x"51f520438f55458c5b8bea38fecc3dd989d8df552a8ec47a5f0e03b9c926c1d06691275175ed005218085a22789bc6b498209877b27d54eabe269138ce119c16";
     let ok = verify_decision(
         &enclave,
         @0x1234,
         100,
-        500,
+        code_hash,
+        decision_hash,
         inputs_hash,
         1_744_038_900_000,
         &signature,
     );
     assert!(ok, 0);
-    // A tampered weight must NOT verify.
+    // A tampered decision hash must NOT verify.
     let bad = verify_decision(
         &enclave,
         @0x1234,
         100,
-        501,
+        code_hash,
+        x"00a503326fead9f8caddfe697b3b9507bb51ae24422a0f65673680ac2c42cf47",
         inputs_hash,
         1_744_038_900_000,
         &signature,

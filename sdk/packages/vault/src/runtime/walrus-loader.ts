@@ -168,13 +168,13 @@ export class WalrusStrategyError extends Error {
 // Internal: on-chain Strategy metadata
 // ---------------------------------------------------------------------------
 
-interface StrategyMeta {
+export interface StrategyMeta {
   sourceWalrusBlob: string;
   /** Lowercase hex, no `0x` prefix. */
   codeHashHex: string;
 }
 
-async function fetchStrategyMeta(
+export async function fetchStrategyMeta(
   client: SuiJsonRpcClient,
   strategyId: string,
 ): Promise<StrategyMeta | null> {

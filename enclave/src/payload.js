@@ -7,9 +7,14 @@
 //   DecisionPayload {
 //     vault_id: address (32 raw bytes, no length prefix),
 //     epoch: u64,
-//     target_weight_milli: u64,
-//     inputs_hash: vector<u8> (ULEB128 length prefix + bytes),
+//     code_hash: vector<u8>,     // sha256 of the strategy bundle that ran (== Strategy.code_hash)
+//     decision_hash: vector<u8>, // sha256 of the canonical decision the bundle produced
+//     inputs_hash: vector<u8>,   // sha256 of the inputs the strategy reasoned over
 //   }
+//
+// Strategy-agnostic: the enclave runs the vault's HIRED strategy bundle (loaded
+// from Walrus, hash-verified) and signs over its code_hash + the decision it
+// produced. Publishing a new strategy needs NO enclave change.
 
 import { bcs } from '@mysten/bcs';
 
@@ -19,7 +24,8 @@ const SuiAddress = bcs.fixedArray(32, bcs.u8());
 export const DecisionPayload = bcs.struct('DecisionPayload', {
   vault_id: SuiAddress,
   epoch: bcs.u64(),
-  target_weight_milli: bcs.u64(),
+  code_hash: bcs.vector(bcs.u8()),
+  decision_hash: bcs.vector(bcs.u8()),
   inputs_hash: bcs.vector(bcs.u8()),
 });
 
@@ -46,14 +52,15 @@ export function addressToBytes(hex) {
  * Serialize the IntentMessage the enclave signs. Returns the BCS bytes that the
  * Move contract reconstructs and verifies the signature against.
  */
-export function serializeDecisionIntent({ vaultId, epoch, targetWeightMilli, inputsHash, timestampMs }) {
+export function serializeDecisionIntent({ vaultId, epoch, codeHash, decisionHash, inputsHash, timestampMs }) {
   return IntentMessageDecision.serialize({
     intent: INTENT_DECISION,
     timestamp_ms: timestampMs,
     payload: {
       vault_id: addressToBytes(vaultId),
       epoch,
-      target_weight_milli: targetWeightMilli,
+      code_hash: Array.from(codeHash),
+      decision_hash: Array.from(decisionHash),
       inputs_hash: Array.from(inputsHash),
     },
   }).toBytes();

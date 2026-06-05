@@ -85,8 +85,13 @@ export interface BuildRebalancePTBArgs {
    */
   attestation?: {
     enclaveObjectId: string;
+    /** The vault's hired `Strategy` object — the gate asserts code_hash matches it. */
+    strategyObjectId: string;
     epoch: bigint;
-    targetWeightMilli: number;
+    /** sha256 of the strategy bundle the enclave ran (== on-chain code_hash). */
+    codeHash: number[];
+    /** sha256 of the decision the enclave produced. */
+    decisionHash: number[];
     inputsHash: number[];
     timestampMs: bigint;
     signature: number[];
@@ -117,8 +122,10 @@ export function buildRebalancePTB(args: BuildRebalancePTBArgs): BuildRebalancePT
       arguments: [
         tx.object(a.enclaveObjectId),
         tx.object(vaultId), // &mut AgentIdentity — vault_id derived + stamped on-chain
+        tx.object(a.strategyObjectId), // &Strategy — gate asserts code_hash + hired-by-vault
         tx.pure.u64(a.epoch),
-        tx.pure.u64(a.targetWeightMilli),
+        tx.pure.vector('u8', a.codeHash),
+        tx.pure.vector('u8', a.decisionHash),
         tx.pure.vector('u8', a.inputsHash),
         tx.pure.u64(a.timestampMs),
         tx.pure.vector('u8', a.signature),

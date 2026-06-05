@@ -1,36 +1,28 @@
 /**
- * Runtime client for the Synapse decision enclave (Nautilus via Marlin Oyster).
+ * Runtime client for the strategy-agnostic Synapse decision enclave.
  *
- * When a vault is configured for attested execution, the runtime asks the
- * enclave for the decision instead of computing it locally. The enclave returns
- * the target weight plus a secp256k1 signature over the BCS-serialized
- * `DecisionPayload`; the runtime attaches that signature to the rebalance PTB,
- * where `synapse_core::decision_attestation::attest_decision` verifies it on-chain
- * before the swap executes.
+ * For an attested vault, the runtime sends the vault's hired strategy (its Walrus
+ * blob id + on-chain code_hash) plus the full `StrategyInput` to the enclave. The
+ * enclave fetches + hash-verifies + RUNS that exact strategy bundle inside the
+ * TEE, then returns the decision it produced + a secp256k1 signature over
+ * (code_hash ‖ decision_hash ‖ inputs_hash). The runtime executes the returned
+ * decision and attaches the signature to the rebalance PTB, where the Move gate
+ * verifies it — and that the code_hash matches the registered strategy.
  *
- * Failures here are surfaced to the caller (not swallowed): an attested vault
- * that can't reach its enclave must NOT silently fall back to an unattested
- * trade — it should skip the tick.
+ * Failures are surfaced (not swallowed): an attested vault that can't reach its
+ * enclave must skip the tick, never fall back to an unattested trade.
  */
 
-/** Inputs the enclave reasons over. Hashed inside the enclave; the host can't forge the signed decision. */
-export interface EnclaveAdvisorInput {
-  baseSymbol: string;
-  quoteSymbol: string;
-  baseWeight: number;
-  basePriceUsd: number;
-  quotePriceUsd: number;
-  navUsd: number;
-  epoch: number;
-  memoryFacts: string[];
-}
+import type { StrategyDecision, StrategyInput } from '../types.js';
 
 export interface AttestedDecision {
-  /** Target base-asset weight × 1000 (0..=1000) — feeds the rebalancer AND the on-chain check. */
-  targetWeightMilli: number;
-  confidence: number;
-  rationale: string;
-  /** sha256 of the advisor inputs, hex — the enclave signed over this. */
+  /** The decision the enclave's strategy run produced — executed by the runtime. */
+  decision: StrategyDecision;
+  /** sha256 of the strategy bundle the enclave ran, hex (== on-chain code_hash). */
+  codeHashHex: string;
+  /** sha256 of the canonical decision, hex. */
+  decisionHashHex: string;
+  /** sha256 of the inputs the strategy reasoned over, hex. */
   inputsHashHex: string;
   /** Enclave timestamp (ms) that was part of the signed message. */
   timestampMs: number;
@@ -42,30 +34,51 @@ export interface RequestAttestedDecisionArgs {
   enclaveUrl: string;
   vaultId: string;
   epoch: bigint;
-  input: EnclaveAdvisorInput;
+  /** Walrus blob id of the hired strategy bundle. */
+  blobId: string;
+  /** On-chain code_hash of the hired strategy, hex (64 chars). */
+  codeHashHex: string;
+  network: 'testnet' | 'mainnet';
+  input: StrategyInput;
   /** Injectable for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
 
+/** JSON codec shared with the enclave: bigints ↔ { "$bigint": "123" }. */
+function replaceBigints(_k: string, v: unknown): unknown {
+  return typeof v === 'bigint' ? { $bigint: v.toString() } : v;
+}
+function reviveBigints(_k: string, v: unknown): unknown {
+  if (v && typeof v === 'object' && '$bigint' in v && typeof (v as { $bigint: unknown }).$bigint === 'string') {
+    return BigInt((v as { $bigint: string }).$bigint);
+  }
+  return v;
+}
+
 /**
- * Ask the enclave for a signed decision. Throws on transport/HTTP error or a
- * malformed response — the caller treats that as a skipped tick.
+ * Ask the enclave to run the hired strategy + sign the decision. Throws on
+ * transport/HTTP error or a malformed response — the caller treats that as a
+ * skipped tick.
  */
 export async function requestAttestedDecision(
   args: RequestAttestedDecisionArgs,
 ): Promise<AttestedDecision> {
   const doFetch = args.fetchImpl ?? fetch;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), args.timeoutMs ?? 30_000);
+  const timer = setTimeout(() => controller.abort(), args.timeoutMs ?? 60_000);
   try {
+    const inputJson = JSON.stringify(args.input, replaceBigints);
     const res = await doFetch(`${stripSlash(args.enclaveUrl)}/decide`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         vaultId: args.vaultId,
         epoch: Number(args.epoch),
-        input: args.input,
+        codeHashHex: args.codeHashHex,
+        blobId: args.blobId,
+        network: args.network,
+        inputJson,
       }),
       signal: controller.signal,
     });
@@ -73,25 +86,29 @@ export async function requestAttestedDecision(
       throw new Error(`enclave /decide ${res.status}: ${(await safeText(res)).slice(0, 200)}`);
     }
     const body = (await res.json()) as {
-      decision?: { targetWeightMilli?: number; confidence?: number; rationale?: string; inputsHashHex?: string };
+      decision?: string;
+      decision_hash?: string;
+      code_hash?: string;
+      inputs_hash?: string;
       timestamp_ms?: number;
       signature?: string;
     };
-    const d = body.decision;
     if (
-      !d ||
-      typeof d.targetWeightMilli !== 'number' ||
-      typeof d.inputsHashHex !== 'string' ||
+      typeof body.decision !== 'string' ||
+      typeof body.decision_hash !== 'string' ||
+      typeof body.code_hash !== 'string' ||
+      typeof body.inputs_hash !== 'string' ||
       typeof body.timestamp_ms !== 'number' ||
       typeof body.signature !== 'string'
     ) {
-      throw new Error('enclave /decide returned a malformed decision');
+      throw new Error('enclave /decide returned a malformed response');
     }
+    const decision = JSON.parse(body.decision, reviveBigints) as StrategyDecision;
     return {
-      targetWeightMilli: d.targetWeightMilli,
-      confidence: typeof d.confidence === 'number' ? d.confidence : 0,
-      rationale: typeof d.rationale === 'string' ? d.rationale : '',
-      inputsHashHex: d.inputsHashHex,
+      decision,
+      codeHashHex: body.code_hash,
+      decisionHashHex: body.decision_hash,
+      inputsHashHex: body.inputs_hash,
       timestampMs: body.timestamp_ms,
       signatureHex: body.signature,
     };
