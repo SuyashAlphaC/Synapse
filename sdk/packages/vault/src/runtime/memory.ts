@@ -1,7 +1,9 @@
 import {
+  buildStrategyRecallQuery,
   createMemWalClient,
   recall,
   rememberAndWait,
+  STRATEGY_RECALL_LIMIT,
   type MemWal,
 } from '@synapse-core/memwal-bridge';
 import type { AgentIdentity } from '@synapse-core/client';
@@ -59,8 +61,8 @@ export async function recallStrategyMemory(args: {
   const result = await recall({
     client: args.client,
     namespace: args.namespace,
-    query: `recent ${args.strategyId} Synapse Vault rebalance decisions, counters, and outcomes`,
-    limit: 32,
+    query: buildStrategyRecallQuery(args.strategyId),
+    limit: STRATEGY_RECALL_LIMIT,
   });
 
   const decisions: Array<{

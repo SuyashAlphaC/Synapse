@@ -1,8 +1,12 @@
 import {
+  buildStrategyRecallQuery,
   createMemWalClientFromParts,
   recall,
+  STRATEGY_RECALL_LIMIT,
   type RecallResult,
 } from '@synapse-core/memwal-bridge';
+
+export { buildStrategyRecallQuery, STRATEGY_RECALL_LIMIT };
 // walrus-free subpath — the vault root barrel pulls @mysten/walrus (WASM).
 import { loadMemwalDelegateFromKeyFile } from '@synapse-core/vault/keypair';
 
@@ -16,6 +20,7 @@ export interface RecallVaultMemoryArgs {
   /** Raw contents of the vault's `.key` file (bundles the MemWal delegate). */
   keyFileContents: string;
   query: string;
+  /** Defaults to {@link STRATEGY_RECALL_LIMIT} — same as the headless runtime. */
   limit?: number;
 }
 
@@ -46,7 +51,11 @@ export async function recallVaultMemory(args: RecallVaultMemoryArgs): Promise<Re
     serverUrl: '/api/memwal-proxy',
   });
   try {
-    return await recall({ client, query: args.query, limit: args.limit ?? 8 });
+    return await recall({
+      client,
+      query: args.query,
+      limit: args.limit ?? STRATEGY_RECALL_LIMIT,
+    });
   } finally {
     client.destroy();
   }

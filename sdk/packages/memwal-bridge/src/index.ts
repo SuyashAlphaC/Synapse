@@ -126,6 +126,21 @@ export interface RecallArgs {
   namespace?: string;
 }
 
+/** Top-K limit used by {@link recallStrategyMemory} in the vault runtime. */
+export const STRATEGY_RECALL_LIMIT = 32;
+
+/**
+ * Semantic recall query issued before every vault tick. Dashboard memory
+ * inspection should default to this string so humans see what the agent saw.
+ */
+export function buildStrategyRecallQuery(strategyId: string): string {
+  const id = strategyId.trim();
+  if (!id) {
+    return 'recent Synapse Vault rebalance decisions, counters, and outcomes';
+  }
+  return `recent ${id} Synapse Vault rebalance decisions, counters, and outcomes`;
+}
+
 /**
  * Fire-and-forget remember — returns as soon as the relayer accepts the job.
  * The actual encryption + Walrus upload runs server-side in the background.

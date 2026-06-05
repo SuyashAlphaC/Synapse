@@ -1,16 +1,23 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CodeTag } from '../ui/code-tag';
 import { useToast } from '../ui/toast';
 import { shortenHash } from '@/lib/format';
-import { recallVaultMemory, type RecallResult } from '@/lib/memwal-recall';
+import {
+  buildStrategyRecallQuery,
+  recallVaultMemory,
+  STRATEGY_RECALL_LIMIT,
+  type RecallResult,
+} from '@/lib/memwal-recall';
 
 const WALRUS_AGGREGATOR = 'https://aggregator.walrus-testnet.walrus.space/v1/blobs';
 
 interface Props {
   memwalAccountId: Uint8Array;
   memwalNamespace: Uint8Array;
+  /** Active strategy id — defaults the recall query to the runtime tick query. */
+  strategyId?: string;
 }
 
 /**
@@ -23,19 +30,29 @@ interface Props {
  * .key file) authorizes decryption and never leaves the browser; the relayer
  * is reached via the same-origin /api/memwal-proxy.
  */
-export function MemWalRecallPanel({ memwalAccountId, memwalNamespace }: Props) {
+export function MemWalRecallPanel({ memwalAccountId, memwalNamespace, strategyId }: Props) {
   const toast = useToast();
   const namespace = useMemo(
     () => new TextDecoder().decode(memwalNamespace),
     [memwalNamespace],
   );
+  const runtimeQuery = useMemo(
+    () => buildStrategyRecallQuery(strategyId ?? ''),
+    [strategyId],
+  );
 
   const [keyFileText, setKeyFileText] = useState<string | null>(null);
   const [keyFileName, setKeyFileName] = useState<string | null>(null);
-  const [query, setQuery] = useState('recent rebalance decisions');
+  const [query, setQuery] = useState(runtimeQuery);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<RecallResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setQuery(runtimeQuery);
+    setResult(null);
+    setError(null);
+  }, [runtimeQuery]);
 
   const onPickKeyFile = useCallback(
     async (file: File) => {
@@ -102,9 +119,10 @@ export function MemWalRecallPanel({ memwalAccountId, memwalNamespace }: Props) {
         Semantic recall over this vault&rsquo;s memories — SEAL-encrypted blobs
         stored on Walrus under namespace{' '}
         <code className="font-mono text-[10px] text-ink">{namespace || '—'}</code>.
-        Pick the <code className="font-mono text-[10px]">.key</code> file (the
-        delegate key decrypts results and never leaves your browser), enter a
-        query, and recall.
+        The default query matches what the headless runtime uses before each tick
+        (top {STRATEGY_RECALL_LIMIT} matches). Pick the{' '}
+        <code className="font-mono text-[10px]">.key</code> file (the delegate key
+        decrypts results and never leaves your browser), then recall.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
@@ -129,8 +147,17 @@ export function MemWalRecallPanel({ memwalAccountId, memwalNamespace }: Props) {
 
       <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
         <label className="grid gap-1">
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
-            Query
+          <span className="flex items-baseline justify-between gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+            <span>Query</span>
+            {query !== runtimeQuery && (
+              <button
+                type="button"
+                onClick={() => setQuery(runtimeQuery)}
+                className="normal-case tracking-normal text-state-active hover:underline"
+              >
+                Reset to runtime query
+              </button>
+            )}
           </span>
           <input
             type="text"

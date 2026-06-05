@@ -242,6 +242,9 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
             <MemWalRecallPanel
               memwalAccountId={live.identity.memwalAccountId}
               memwalNamespace={live.identity.memwalNamespace}
+              {...(live.identity.strategyId
+                ? { strategyId: live.identity.strategyId }
+                : {})}
             />
           )}
           {liveVault && <InBrowserRuntimePanel vaultId={liveVault.agentId} />}

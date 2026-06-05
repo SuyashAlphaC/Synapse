@@ -118,7 +118,7 @@ export function buildRebalancePTB(args: BuildRebalancePTBArgs): BuildRebalancePT
   if (args.attestation) {
     const a = args.attestation;
     tx.moveCall({
-      target: target(synapsePackageId, 'decisionAttestation', 'attest_decision'),
+      target: target(synapsePackageId, 'decisionAttestation', 'attest_decision_v2'),
       arguments: [
         tx.object(a.enclaveObjectId),
         tx.object(vaultId), // &mut AgentIdentity — vault_id derived + stamped on-chain

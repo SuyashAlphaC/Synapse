@@ -33,7 +33,7 @@ export const NETWORK = (process.env['NEXT_PUBLIC_SYNAPSE_NETWORK'] as Network) ?
  */
 export const SYNAPSE_PACKAGE_ID =
   process.env['NEXT_PUBLIC_SYNAPSE_PACKAGE_ID'] ??
-  '0x0240a49e849d2349a9ee403e6e08d897ce97c82dd0a1a9d9ebdb9ea4357de086';
+  '0xe95241a800a97841e7676437cc83c9761e6d30e42ab8bdd590d49fd40e22a797';
 
 /** UpgradeCap object ID — kept here for traceability, not used at runtime. */
 export const SYNAPSE_UPGRADE_CAP =
@@ -62,6 +62,7 @@ export const SYNAPSE_SEAL_PACKAGE_ID =
  * entries — historical events remain forever.
  */
 export const SYNAPSE_PACKAGE_HISTORY: readonly string[] = [
+  '0xe95241a800a97841e7676437cc83c9761e6d30e42ab8bdd590d49fd40e22a797', // v6 (strategy-agnostic attestation)
   '0x0240a49e849d2349a9ee403e6e08d897ce97c82dd0a1a9d9ebdb9ea4357de086', // v5 (royalty per-epoch cap)
   '0x85215709ab6e9db9494042a1405d75c942a3f827b2750e1be58bcd17b34a1534', // v4 (enclave attestation)
   '0xd849b7b281cdc030daf4e2269a36e85e285edd44849b481eb6da49aed1978f01', // v3 (walrus consent)

@@ -67,3 +67,9 @@ scripts/live-vaults.json
 run-cross-read.sh
 # sui publish artifact
 move/**/Published.toml
+
+# local pitch deck (not part of the repo)
+pitch/
+
+# local messaging-demo helper (holds owner key)
+run-messaging.sh
