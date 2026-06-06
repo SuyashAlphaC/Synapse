@@ -83,13 +83,14 @@ export function HostedRuntimePanel({
     }
   }, [configQuery.data?.defaultTickIntervalMinutes]);
 
+  // Prefill enclave fields only when BOTH server defaults exist — a lone object
+  // id (common on testnet) blocks enable with "Incomplete enclave config".
   useEffect(() => {
-    if (configQuery.data?.defaultEnclaveUrl && !enclaveUrl) {
-      setEnclaveUrl(configQuery.data.defaultEnclaveUrl);
-    }
-    if (configQuery.data?.defaultEnclaveObjectId && !enclaveObjectId) {
-      setEnclaveObjectId(configQuery.data.defaultEnclaveObjectId);
-    }
+    const url = configQuery.data?.defaultEnclaveUrl;
+    const id = configQuery.data?.defaultEnclaveObjectId;
+    if (!url || !id) return;
+    if (!enclaveUrl) setEnclaveUrl(url);
+    if (!enclaveObjectId) setEnclaveObjectId(id);
   }, [
     configQuery.data?.defaultEnclaveObjectId,
     configQuery.data?.defaultEnclaveUrl,
@@ -425,10 +426,27 @@ export function HostedRuntimePanel({
               {requiresAttestation ? ' · required by vault policy' : ' · optional'}
             </p>
             <p className="text-[11px] leading-relaxed text-ink-soft">
-              When configured, every tick calls your enclave for a signed decision and stamps{' '}
+              {requiresAttestation
+                ? 'Required by vault policy — provide a reachable enclave URL and registered on-chain Enclave object id.'
+                : 'Optional — leave both fields empty to run without Nautilus (local strategy execution).'}
+              {' '}
+              When set, every tick calls the enclave and stamps{' '}
               <code className="font-mono text-[10px]">decision_attestation::attest_decision_v2</code>{' '}
-              on-chain (rebalance and noop). LLM keys should live in the enclave, not Fargate.
+              on-chain.
             </p>
+            {!requiresAttestation && (enclaveUrl.trim() || enclaveObjectId.trim()) ? (
+              <button
+                type="button"
+                disabled={enabling}
+                onClick={() => {
+                  setEnclaveUrl('');
+                  setEnclaveObjectId('');
+                }}
+                className="w-fit font-mono text-[10px] uppercase tracking-[0.12em] text-accent-orange underline-offset-2 hover:underline"
+              >
+                Clear enclave fields (no Nautilus)
+              </button>
+            ) : null}
             <label className="grid gap-1">
               <span className="font-mono text-[10px] text-ink-mute">Enclave URL</span>
               <input
