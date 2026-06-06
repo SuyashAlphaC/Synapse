@@ -1,0 +1,20 @@
+{
+  "name": "synapse-messaging-runtime-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated @mysten/messaging (sui 1.x) subprocess RPC for the Synapse vault runtime (sui 2.x)",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mysten/messaging": "0.3.0",
+    "@mysten/sui": "^1.45.2",
+    "@mysten/seal": "^0.9.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

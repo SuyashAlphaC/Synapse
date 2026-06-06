@@ -54,6 +54,16 @@ const HostedRuntimePanel = dynamic(
   },
 );
 
+const CoordinationPanel = dynamic(
+  () => import('./coordination-panel').then((m) => m.CoordinationPanel),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="card-flat p-6 text-sm text-ink-soft">Loading coordination…</div>
+    ),
+  },
+);
+
 import { CodeTag } from '../ui/code-tag';
 import {
   SAMPLE_REBALANCE_HISTORY,
@@ -265,6 +275,13 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
               {...(live.identity.strategyId
                 ? { strategyId: live.identity.strategyId }
                 : {})}
+            />
+          )}
+          {live && liveVault && (
+            <CoordinationPanel
+              vaultId={liveVault.agentId}
+              memwalNamespace={live.identity.memwalNamespace}
+              memwalEnabled={live.identity.memwalAccountId.length > 0}
             />
           )}
           {liveVault && (

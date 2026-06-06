@@ -57,6 +57,10 @@ RUN npm --workspace @synapse-core/client run build \
   && npm --workspace @synapse-core/adapter-langgraph run build \
   && npm --workspace @synapse-core/vault run build
 
+# Sui Stack Messaging bridge (isolated sui 1.x — not a workspace package).
+COPY examples/messaging-runtime-bridge ./examples/messaging-runtime-bridge
+RUN cd examples/messaging-runtime-bridge && npm install && npm run build
+
 # ---------- Runtime image ----------
 FROM node:22-alpine AS runtime
 WORKDIR /app
@@ -67,6 +71,7 @@ RUN addgroup -S synapse && adduser -S -G synapse synapse \
 
 COPY --from=builder /repo/node_modules /app/node_modules
 COPY --from=builder /repo/sdk /app/sdk
+COPY --from=builder /repo/examples/messaging-runtime-bridge /app/examples/messaging-runtime-bridge
 COPY --from=builder /repo/package.json /app/package.json
 COPY --from=builder /repo/tsconfig.base.json /app/tsconfig.base.json
 
@@ -74,6 +79,7 @@ USER synapse
 
 ENV NODE_ENV=production
 ENV NODE_OPTIONS=--enable-source-maps
+ENV SYNAPSE_MESSAGING_BRIDGE_PATH=/app/examples/messaging-runtime-bridge/dist/rpc.js
 
 # Run the compiled JS (faster cold start than tsx, no transpiler in prod).
 ENTRYPOINT ["node", "sdk/packages/vault/dist/runtime/bin/run.js"]

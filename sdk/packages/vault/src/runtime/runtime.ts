@@ -117,6 +117,7 @@ import {
   recordSendPTB,
   type MessagingLike,
 } from './messaging.js';
+import { consumeCrossAgentMemories, mergeTickMemoryWrite } from './cross-agent.js';
 import { sendAlert } from './alerts.js';
 import type { Strategy } from '../types.js';
 
@@ -540,6 +541,43 @@ export class VaultRuntime {
       );
     }
 
+    // --- Cross-agent MemWal read: recall peer vault memories from the shared
+    // namespace, attest on-chain, inject xattr: facts for the strategy.
+    let crossAgentSeenMarkers: string[] = [];
+    const peerVaultIds = this.#config.crossAgentPeerVaultIds ?? [];
+    if (memwal && peerVaultIds.length > 0) {
+      try {
+        const xattr = await consumeCrossAgentMemories({
+          client: this.#client,
+          packageId: this.#config.packageId,
+          packageHistory: this.#config.packageHistory,
+          readerVaultId: this.#config.agentId,
+          readerNamespaceBytes: agent.identity.memwalNamespace,
+          memwal,
+          namespace,
+          peerVaultIds,
+          existingFacts: input.memory.facts,
+          signer,
+          ...(this.#config.crossAgentRecallQuery
+            ? { query: this.#config.crossAgentRecallQuery }
+            : {}),
+        });
+        crossAgentSeenMarkers = xattr.seenMarkers;
+        if (xattr.facts.length > 0) {
+          input.memory.facts = [...input.memory.facts, ...xattr.facts];
+          this.#logger.info(
+            { count: xattr.facts.length, attested: xattr.attestedCount, peers: peerVaultIds.length },
+            'consumed cross-agent MemWal reads into strategy memory',
+          );
+        }
+      } catch (err) {
+        this.#logger.warn(
+          { err: err instanceof Error ? err.message : String(err) },
+          'cross-agent MemWal read failed; continuing tick',
+        );
+      }
+    }
+
     // --- Cross-agent consume: read peers' signals from the on-chain inbox
     // channel and inject them as memory facts so the strategy/enclave sees them.
     // Persisted channel ids come from the vault's on-chain state; the cursor
@@ -626,18 +664,13 @@ export class VaultRuntime {
             ...(strategyRuntime !== undefined ? { runtime: strategyRuntime } : {}),
           })
         : null;
-    // Fold the advanced message cursor into the memory write so the next tick
-    // resumes after the messages we just consumed (never reprocessed).
-    const memoryWrite =
-      consumedCursor !== null
-        ? {
-            ...(strategyMemoryWrite ?? {}),
-            counters: {
-              ...(strategyMemoryWrite?.counters ?? {}),
-              msgCursor: Number(consumedCursor),
-            },
-          }
-        : strategyMemoryWrite;
+    // Fold tick-level memory updates (message cursor, cross-agent seen markers)
+    // into the strategy's declared MemWal write.
+    const memoryWrite = mergeTickMemoryWrite({
+      strategyWrite: strategyMemoryWrite,
+      msgCursor: consumedCursor,
+      extraFacts: crossAgentSeenMarkers,
+    });
 
     // Compute realized alpha vs hold using last tick's snapshot. Positive
     // alpha means the strategy outperformed a do-nothing baseline; that's
@@ -669,7 +702,14 @@ export class VaultRuntime {
       // Persist this tick's outcome + strategy memory updates so the next
       // tick can recover counters/facts. Best-effort: a MemWal outage must
       // not count as a tick failure (it would trip the kill-switch).
-      await this.#rememberSafe({ memwal, namespace, strategyId: activeStrategy.id, decision, receipt, memoryWrite });
+      await this.#rememberSafe({
+        memwal,
+        namespace,
+        strategyId: activeStrategy.id,
+        decision,
+        receipt,
+        memoryWrite,
+      });
       return receipt;
     }
 
@@ -792,7 +832,14 @@ export class VaultRuntime {
     this.#savePreviousTick(postTradeHoldings, currentEpoch);
     // Best-effort: the trade is already final on-chain; a MemWal outage must not
     // be reclassified as a tick failure (which would trip the kill-switch).
-    await this.#rememberSafe({ memwal, namespace, strategyId: activeStrategy.id, decision, receipt, memoryWrite });
+    await this.#rememberSafe({
+      memwal,
+      namespace,
+      strategyId: activeStrategy.id,
+      decision,
+      receipt,
+      memoryWrite,
+    });
     this.#logger.info(
       {
         txDigest: receipt.txDigest,
@@ -1542,20 +1589,6 @@ function priceHoldings(holdings: HoldingSnapshot[], prices: Record<string, numbe
   });
 }
 
-/**
- * Convert the on-chain `spend_per_epoch` u64 into a USD-denominated cap.
- *
- * The Move VM enforces `spent_this_epoch` as a generic counter — it does not
- * tag the per-coin denomination. To render a USD value we infer the most
- * plausible denomination heuristically:
- *
- *   1. The largest-by-USD-value holding's coin type (highest-conviction signal
- *      about what the operator intends to spend in).
- *   2. Otherwise the first holding.
- *   3. Otherwise 0 (no holdings → no meaningful USD value).
- *
- * Whichever coin we pick, we apply that coin's decimal scaling and USD price.
- */
 function spendCapUsd(spendPerEpoch: bigint, holdings: HoldingSnapshot[]): number {
   if (holdings.length === 0) return 0;
   const denom = holdings.reduce((best, current) =>

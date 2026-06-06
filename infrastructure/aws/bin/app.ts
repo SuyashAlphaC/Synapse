@@ -40,6 +40,10 @@ const anthropicSecretName =
 const enclaveUrl = app.node.tryGetContext('enclaveUrl') ?? process.env.SYNAPSE_ENCLAVE_URL ?? null;
 const enclaveObjectId =
   app.node.tryGetContext('enclaveObjectId') ?? process.env.SYNAPSE_ENCLAVE_OBJECT_ID ?? null;
+const crossAgentPeerVaultIds =
+  app.node.tryGetContext('crossAgentPeerVaultIds') ??
+  process.env.SYNAPSE_CROSS_AGENT_PEERS ??
+  null;
 const runtimeImageUri =
   app.node.tryGetContext('runtimeImageUri') ??
   process.env.SYNAPSE_RUNTIME_ECR_IMAGE ??
@@ -67,5 +71,6 @@ new VaultRuntimeStack(app, `SynapseVaultRuntime${suffix}`, {
   anthropicSecretName,
   enclaveUrl,
   enclaveObjectId,
+  crossAgentPeerVaultIds,
   runtimeImageUri,
 });

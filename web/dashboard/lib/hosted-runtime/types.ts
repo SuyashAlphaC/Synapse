@@ -24,6 +24,10 @@ export interface HostedRuntimeStatus {
   };
   /** True when the Fargate task definition includes SYNAPSE_ENCLAVE_* env vars. */
   attestationConfigured: boolean;
+  /** True when SYNAPSE_CROSS_AGENT_PEERS is set on the Fargate task definition. */
+  crossAgentConfigured: boolean;
+  /** Peer vault ids configured on the hosted runtime task (empty when unset). */
+  crossAgentPeerVaultIds: string[];
 }
 
 export interface EnableHostedRuntimeRequest {
@@ -41,6 +45,11 @@ export interface EnableHostedRuntimeRequest {
   requiresAttestation?: boolean;
   /** Must be true — confirms secrets are sent to Synapse AWS hosting. */
   consent: boolean;
+  /**
+   * Comma- or newline-separated peer vault object ids for MemWal cross-agent
+   * reads (`SYNAPSE_CROSS_AGENT_PEERS`). Requires MemWal delegate in the .key file.
+   */
+  crossAgentPeerVaultIds?: string;
 }
 
 export interface UpdateHostedRuntimeConfigRequest {
@@ -49,6 +58,12 @@ export interface UpdateHostedRuntimeConfigRequest {
   enclaveObjectId: string;
   /** When set, replaces the vault's Anthropic secret in Secrets Manager. */
   anthropicApiKey?: string;
+}
+
+export interface UpdateHostedRuntimeCoordinationRequest {
+  vaultId: string;
+  /** Empty string clears cross-agent peers on the stack. */
+  crossAgentPeerVaultIds: string;
 }
 
 export interface EnableHostedRuntimeResult {

@@ -10,3 +10,6 @@ export * from './logger.js';
 export * from './oracle.js';
 export * from './secrets.js';
 export * from './alerts.js';
+export * from './cross-agent.js';
+export * from './messaging.js';
+export * from './messaging-bootstrap.js';

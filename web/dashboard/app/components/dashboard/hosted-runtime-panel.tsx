@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CodeTag } from '../ui/code-tag';
 import { useToast } from '../ui/toast';
+import { NautilusEnclaveFields } from './nautilus-enclave-fields';
 import type { HostedRuntimePhase, HostedRuntimeStatus } from '@/lib/hosted-runtime/types';
 
 interface Props {
@@ -23,6 +24,10 @@ interface PublicConfig {
   vercel?: boolean;
   defaultEnclaveUrl?: string | null;
   defaultEnclaveObjectId?: string | null;
+  sharedSynapseEnclave?: { url: string; objectId: string } | null;
+  synapseManagedEnclaveAvailable?: boolean;
+  enclaveDocsUrl?: string;
+  network?: string;
 }
 
 const TICK_OPTIONS = [5, 10, 15, 30] as const;
@@ -62,6 +67,7 @@ export function HostedRuntimePanel({
   const [anthropicKey, setAnthropicKey] = useState('');
   const [enclaveUrl, setEnclaveUrl] = useState('');
   const [enclaveObjectId, setEnclaveObjectId] = useState('');
+  const [crossAgentPeerVaultIds, setCrossAgentPeerVaultIds] = useState('');
   const [tickMinutes, setTickMinutes] = useState(10);
   const [consent, setConsent] = useState(false);
   const [enabling, setEnabling] = useState(false);
@@ -78,25 +84,34 @@ export function HostedRuntimePanel({
     },
   });
 
+  const sharedSynapseEnclave = configQuery.data?.sharedSynapseEnclave ?? null;
+  const synapseManagedEnclaveAvailable =
+    configQuery.data?.synapseManagedEnclaveAvailable ?? false;
+  const enclaveDocsUrl = configQuery.data?.enclaveDocsUrl;
+
+  const applySharedSynapseEnclave = useCallback(() => {
+    if (!sharedSynapseEnclave) return;
+    setEnclaveUrl(sharedSynapseEnclave.url);
+    setEnclaveObjectId(sharedSynapseEnclave.objectId);
+  }, [sharedSynapseEnclave]);
+
   useEffect(() => {
     if (configQuery.data?.defaultTickIntervalMinutes) {
       setTickMinutes(configQuery.data.defaultTickIntervalMinutes);
     }
   }, [configQuery.data?.defaultTickIntervalMinutes]);
 
-  // Prefill enclave fields only when BOTH server defaults exist — a lone object
-  // id (common on testnet) blocks enable with "Incomplete enclave config".
+  // Auto-fill Synapse shared enclave when attestation is required and fields are empty.
   useEffect(() => {
-    const url = configQuery.data?.defaultEnclaveUrl;
-    const id = configQuery.data?.defaultEnclaveObjectId;
-    if (!url || !id) return;
-    if (!enclaveUrl) setEnclaveUrl(url);
-    if (!enclaveObjectId) setEnclaveObjectId(id);
+    if (!requiresAttestation || !sharedSynapseEnclave) return;
+    if (enclaveUrl.trim() || enclaveObjectId.trim()) return;
+    setEnclaveUrl(sharedSynapseEnclave.url);
+    setEnclaveObjectId(sharedSynapseEnclave.objectId);
   }, [
-    configQuery.data?.defaultEnclaveObjectId,
-    configQuery.data?.defaultEnclaveUrl,
     enclaveObjectId,
     enclaveUrl,
+    requiresAttestation,
+    sharedSynapseEnclave,
   ]);
 
   const statusQuery = useQuery({
@@ -218,6 +233,7 @@ export function HostedRuntimePanel({
           anthropicApiKey: anthropicKey.trim() || undefined,
           enclaveUrl: resolvedEnclaveUrl || undefined,
           enclaveObjectId: resolvedEnclaveObjectId || undefined,
+          crossAgentPeerVaultIds: crossAgentPeerVaultIds.trim() || undefined,
           requiresAttestation,
           tickIntervalMinutes: tickMinutes,
           consent: true,
@@ -249,6 +265,7 @@ export function HostedRuntimePanel({
     }
   }, [
     anthropicKey,
+    crossAgentPeerVaultIds,
     consent,
     enclaveObjectId,
     enclaveUrl,
@@ -393,6 +410,8 @@ export function HostedRuntimePanel({
             {status.secretsReady.anthropic ? '✓' : '—'}
             {' · '}
             nautilus {status.attestationConfigured ? '✓' : '—'}
+            {' · '}
+            cross-agent {status.crossAgentConfigured ? '✓' : '—'}
           </p>
         </div>
       )}
@@ -443,28 +462,18 @@ export function HostedRuntimePanel({
             <code className="font-mono text-[10px]">UPDATE_COMPLETE</code>, refresh status until{' '}
             <strong>nautilus ✓</strong>, then resume ticks.
           </p>
-          <label className="grid gap-1">
-            <span className="font-mono text-[10px] text-ink-mute">Enclave URL</span>
-            <input
-              type="url"
-              value={enclaveUrl}
-              disabled={updatingEnclave}
-              onChange={(e) => setEnclaveUrl(e.target.value)}
-              placeholder="http://54.166.136.55:3000"
-              className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
-            />
-          </label>
-          <label className="grid gap-1">
-            <span className="font-mono text-[10px] text-ink-mute">Enclave object ID</span>
-            <input
-              type="text"
-              value={enclaveObjectId}
-              disabled={updatingEnclave}
-              onChange={(e) => setEnclaveObjectId(e.target.value)}
-              placeholder="0x2e170c44…"
-              className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
-            />
-          </label>
+          <NautilusEnclaveFields
+            enclaveUrl={enclaveUrl}
+            enclaveObjectId={enclaveObjectId}
+            disabled={updatingEnclave}
+            requiresAttestation
+            sharedSynapseEnclave={sharedSynapseEnclave}
+            synapseManagedEnclaveAvailable={synapseManagedEnclaveAvailable}
+            enclaveDocsUrl={enclaveDocsUrl}
+            onEnclaveUrlChange={setEnclaveUrl}
+            onEnclaveObjectIdChange={setEnclaveObjectId}
+            onApplySharedEnclave={applySharedSynapseEnclave}
+          />
           {needsAnthropicKey && (
             <label className="grid gap-1">
               <span className="font-mono text-[10px] text-ink-mute">
@@ -541,49 +550,50 @@ export function HostedRuntimePanel({
               {requiresAttestation ? ' · required by vault policy' : ' · optional'}
             </p>
             <p className="text-[11px] leading-relaxed text-ink-soft">
-              {requiresAttestation
-                ? 'Required by vault policy — provide a reachable enclave URL and registered on-chain Enclave object id.'
-                : 'Optional — leave both fields empty to run without Nautilus (local strategy execution).'}
-              {' '}
               When set, every tick calls the enclave and stamps{' '}
               <code className="font-mono text-[10px]">decision_attestation::attest_decision_v2</code>{' '}
               on-chain.
             </p>
-            {!requiresAttestation && (enclaveUrl.trim() || enclaveObjectId.trim()) ? (
-              <button
-                type="button"
-                disabled={enabling}
-                onClick={() => {
-                  setEnclaveUrl('');
-                  setEnclaveObjectId('');
-                }}
-                className="w-fit font-mono text-[10px] uppercase tracking-[0.12em] text-accent-orange underline-offset-2 hover:underline"
-              >
-                Clear enclave fields (no Nautilus)
-              </button>
-            ) : null}
-            <label className="grid gap-1">
-              <span className="font-mono text-[10px] text-ink-mute">Enclave URL</span>
-              <input
-                type="url"
-                value={enclaveUrl}
-                disabled={enabling}
-                onChange={(e) => setEnclaveUrl(e.target.value)}
-                placeholder="https://…"
-                className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
-              />
-            </label>
-            <label className="grid gap-1">
-              <span className="font-mono text-[10px] text-ink-mute">Enclave object ID</span>
-              <input
-                type="text"
-                value={enclaveObjectId}
-                disabled={enabling}
-                onChange={(e) => setEnclaveObjectId(e.target.value)}
-                placeholder="0x…"
-                className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
-              />
-            </label>
+            <NautilusEnclaveFields
+              enclaveUrl={enclaveUrl}
+              enclaveObjectId={enclaveObjectId}
+              disabled={enabling}
+              requiresAttestation={requiresAttestation}
+              sharedSynapseEnclave={sharedSynapseEnclave}
+              synapseManagedEnclaveAvailable={synapseManagedEnclaveAvailable}
+              enclaveDocsUrl={enclaveDocsUrl}
+              onEnclaveUrlChange={setEnclaveUrl}
+              onEnclaveObjectIdChange={setEnclaveObjectId}
+              onApplySharedEnclave={applySharedSynapseEnclave}
+              onClearEnclave={() => {
+                setEnclaveUrl('');
+                setEnclaveObjectId('');
+              }}
+              showClearButton={
+                !requiresAttestation && Boolean(enclaveUrl.trim() || enclaveObjectId.trim())
+              }
+            />
+          </div>
+
+          <div className="grid gap-2 rounded-sm border border-divider bg-paper p-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+              MemWal cross-agent peers
+            </p>
+            <p className="text-[11px] leading-relaxed text-ink-soft">
+              Optional — peer vault object ids to recall on each tick (
+              <code className="font-mono text-[10px]">SYNAPSE_CROSS_AGENT_PEERS</code>). Vaults
+              minted under the same owner wallet share a MemWal namespace. Requires MemWal in your{' '}
+              <code className="font-mono text-[10px]">.key</code> file. Change peers later in the
+              Coordination panel.
+            </p>
+            <textarea
+              value={crossAgentPeerVaultIds}
+              disabled={enabling}
+              onChange={(e) => setCrossAgentPeerVaultIds(e.target.value)}
+              placeholder="0x…peer vault AgentIdentity id (one per line)"
+              rows={2}
+              className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
+            />
           </div>
 
           <label className="grid max-w-xs gap-1">

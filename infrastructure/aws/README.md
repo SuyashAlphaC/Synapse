@@ -134,8 +134,14 @@ On `/dashboard/<vaultId>`, open **Hosted runtime**, upload the session `.key`, c
      -c anthropicSecretName=synapse/vault/<short>/anthropic-key \
      -c enclaveUrl=https://<your-oyster-or-nitro-enclave> \
      -c enclaveObjectId=0x361b7a26380d5312247ff0afca78086c996ecc159bd30ca3b0a5ee4bf949ab9f \
+     -c crossAgentPeerVaultIds=0x<peer-vault-id> \
      -c tickIntervalMinutes=10
    ```
+
+   **MemWal cross-agent reads.** For a reader vault that recalls peer outcomes
+   from a shared MemWal namespace, pass `-c crossAgentPeerVaultIds=<comma-separated
+   AgentIdentity ids>` (same as `SYNAPSE_CROSS_AGENT_PEERS` on Fargate). Or set
+   peers from the dashboard **Coordination** panel after enabling hosted runtime.
 
    The enclave must be reachable from Fargate (the Oyster/Nitro enclave has a
    public URL). The Anthropic key lives only in Secrets Manager + the enclave,

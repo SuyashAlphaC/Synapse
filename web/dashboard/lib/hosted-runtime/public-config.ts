@@ -1,20 +1,22 @@
 import {
-  defaultEnclaveObjectId,
-  defaultEnclaveUrl,
   defaultTickIntervalMinutes,
   hostedRuntimeRegion,
   isHostedRuntimeApiEnabled,
   isVercelDeployment,
   sharedRuntimeImageUri,
+  sharedSynapseEnclaveDefaults,
+  synapseManagedEnclaveAvailable,
   useCloudFormationProvisioner,
 } from './config';
-import { NETWORK, SYNAPSE_TESTNET_ENCLAVE_OBJECT_ID } from '@/lib/synapse-config';
+import { NETWORK, SYNAPSE_ENCLAVE_DOCS_URL } from '@/lib/synapse-config';
 
 /** Safe to expose to the browser — no secrets. */
 export function getHostedRuntimePublicConfig() {
-  const defaultObjectId =
-    defaultEnclaveObjectId() ??
-    (NETWORK === 'testnet' ? SYNAPSE_TESTNET_ENCLAVE_OBJECT_ID : null);
+  const shared = sharedSynapseEnclaveDefaults();
+  const sharedSynapseEnclave =
+    shared.url && shared.objectId
+      ? { url: shared.url, objectId: shared.objectId }
+      : null;
 
   return {
     apiEnabled: isHostedRuntimeApiEnabled(),
@@ -23,8 +25,14 @@ export function getHostedRuntimePublicConfig() {
     defaultTickIntervalMinutes: defaultTickIntervalMinutes(),
     deployMode: hostedRuntimeDeployMode(),
     vercel: isVercelDeployment(),
-    defaultEnclaveUrl: defaultEnclaveUrl(),
-    defaultEnclaveObjectId: defaultObjectId,
+    /** @deprecated Prefer sharedSynapseEnclave — kept for backward compatibility. */
+    defaultEnclaveUrl: shared.url,
+    /** @deprecated Prefer sharedSynapseEnclave — kept for backward compatibility. */
+    defaultEnclaveObjectId: shared.objectId,
+    sharedSynapseEnclave,
+    synapseManagedEnclaveAvailable: synapseManagedEnclaveAvailable(),
+    enclaveDocsUrl: SYNAPSE_ENCLAVE_DOCS_URL,
+    network: NETWORK,
   };
 }
 

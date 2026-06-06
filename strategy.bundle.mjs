@@ -1,38 +1,51 @@
-// ../../../../tmp/synapse-strategy-iEoIY6/momentum-yield-maximizer.strategy.ts
+// ../../../../tmp/synapse-strategy-eRGtH0/momentum-yield-maximizer.strategy.ts
 var CONFIG = {
-  baseTypeTag: "0x2::sui::SUI",
+  /** @mysten/deepbook-v3 testnetCoins.SUI.type */
+  baseTypeTag: "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI",
   baseSymbol: "SUI",
-  quoteTypeTag: "0xf7152c05930480cd740d7311b5b8b45c6f488e3a53a11c3262cdf230b5f3fe22::dbusdc::DBUSDC",
+  /** @mysten/deepbook-v3 testnetCoins.DBUSDC.type */
+  quoteTypeTag: "0xf7152c05930480cd740d7311b5b8b45c6f488e3a53a11c3f74a6fac36a52e0d7::DBUSDC::DBUSDC",
   quoteSymbol: "DBUSDC",
-  poolId: "0xf0f663cf87f1eb124da2fc9be813e0ce262146f3df60bc2052d738eb41a25899",
-  /** Rolling price window stored in MemWal facts. */
+  /** @mysten/deepbook-v3 testnetPools.SUI_DBUSDC.address */
+  poolId: "0x1c19362ca52b8ffd7a33cee805a67d40f31e6ba303753fd3a4cfdfacea7163a5",
   priceWindow: 36,
-  /** Min samples before momentum / vol math runs. */
   minWarmupSamples: 10,
-  /** Short vs long momentum lookbacks (in samples, not epochs). */
   momentumShort: 6,
   momentumLong: 18,
-  /** Target base weight bounds — yield-seeking band. */
   minBaseWeight: 0.32,
   maxBaseWeight: 0.72,
   neutralBaseWeight: 0.55,
-  /** Drift must exceed this (fraction of NAV) before trading. */
   driftThresholdCalm: 0.022,
   driftThresholdStress: 0.055,
   slippageCalm: 4e-3,
   slippageStress: 0.01,
-  /** Vol above this → stress regime (log-return stddev). */
   stressVol: 0.042,
-  /** Drawdown from rolling peak that forces de-risk even if momentum lagging. */
   emergencyDrawdown: 0.06,
-  /** Skip re-trade unless drift exceeds this OR epochs since last trade ≥ cooldown. */
   tradeCooldownEpochs: 1,
-  /** Extra drift required when still inside cooldown. */
   cooldownDriftMultiplier: 1.8
 };
 var STRATEGY_ID = "momentum-yield-maximizer";
 var PRICE_FACT_PREFIX = "mym:px:";
 var PEAK_FACT_PREFIX = "mym:peak:";
+function normalizeCoinTypeTag(tag) {
+  const trimmed = tag.trim();
+  const parts = trimmed.split("::");
+  if (parts.length < 3) return trimmed;
+  let addr = parts[0];
+  if (addr.startsWith("0x") || addr.startsWith("0X")) addr = addr.slice(2);
+  addr = addr.toLowerCase().padStart(64, "0");
+  return `0x${addr}::${parts[1]}::${parts[2]}`;
+}
+function sameCoinType(a, b) {
+  return normalizeCoinTypeTag(a) === normalizeCoinTypeTag(b);
+}
+function findHolding(holdings, configTypeTag) {
+  return holdings.find((h) => sameCoinType(h.coinTypeTag, configTypeTag));
+}
+function findPool(pools, configPoolId) {
+  const want = configPoolId.toLowerCase();
+  return pools.find((p) => p.poolId.toLowerCase() === want);
+}
 function clamp01(n) {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(1, n));
@@ -104,9 +117,7 @@ function targetBaseWeight(args) {
     target = CONFIG.neutralBaseWeight + (target - CONFIG.neutralBaseWeight) * 0.55;
   }
   target -= drawdownPenalty * (target - CONFIG.minBaseWeight) * 0.65;
-  return clamp01(
-    Math.max(CONFIG.minBaseWeight, Math.min(CONFIG.maxBaseWeight, target))
-  );
+  return clamp01(Math.max(CONFIG.minBaseWeight, Math.min(CONFIG.maxBaseWeight, target)));
 }
 function effectiveDriftThreshold(regime) {
   if (regime === "stress") return CONFIG.driftThresholdStress;
@@ -126,10 +137,8 @@ function poolSpreadBps(pool) {
   return (ask - bid) / mid * 1e4;
 }
 function buildRebalancePlan(args) {
-  const base = args.input.holdings.find((h) => h.coinTypeTag === CONFIG.baseTypeTag);
-  const quote = args.input.holdings.find((h) => h.coinTypeTag === CONFIG.quoteTypeTag);
-  const totalUsd = base.valueUsd + quote.valueUsd;
-  const actualBaseWeight = totalUsd > 0 ? base.valueUsd / totalUsd : 0;
+  const totalUsd = args.base.valueUsd + args.quote.valueUsd;
+  const actualBaseWeight = totalUsd > 0 ? args.base.valueUsd / totalUsd : 0;
   const drift = actualBaseWeight - args.targetBaseWeight;
   const absDrift = Math.abs(drift);
   if (absDrift < args.driftThreshold) {
@@ -144,7 +153,7 @@ function buildRebalancePlan(args) {
       }
     };
   }
-  const pool = args.input.market.pools.find((p) => p.poolId === CONFIG.poolId);
+  const pool = findPool(args.input.market.pools, CONFIG.poolId);
   if (!pool) {
     return {
       kind: "noop",
@@ -161,20 +170,20 @@ function buildRebalancePlan(args) {
     };
   }
   const targetBaseUsd = totalUsd * args.targetBaseWeight;
-  const baseExcessUsd = base.valueUsd - targetBaseUsd;
+  const baseExcessUsd = args.base.valueUsd - targetBaseUsd;
   let trades;
   if (baseExcessUsd > 0) {
     const sellUsd = baseExcessUsd;
     trades = [
       {
         poolId: CONFIG.poolId,
-        fromTypeTag: CONFIG.baseTypeTag,
-        toTypeTag: CONFIG.quoteTypeTag,
-        amountIn: usdToAtomic(sellUsd, base.priceUsd, base.decimals),
+        fromTypeTag: args.base.coinTypeTag,
+        toTypeTag: args.quote.coinTypeTag,
+        amountIn: usdToAtomic(sellUsd, args.base.priceUsd, args.base.decimals),
         minAmountOut: usdToAtomic(
           sellUsd * (1 - args.slippageTolerance),
-          quote.priceUsd,
-          quote.decimals
+          args.quote.priceUsd,
+          args.quote.decimals
         ),
         direction: 0
       }
@@ -184,17 +193,24 @@ function buildRebalancePlan(args) {
     trades = [
       {
         poolId: CONFIG.poolId,
-        fromTypeTag: CONFIG.quoteTypeTag,
-        toTypeTag: CONFIG.baseTypeTag,
-        amountIn: usdToAtomic(buyUsd, quote.priceUsd, quote.decimals),
+        fromTypeTag: args.quote.coinTypeTag,
+        toTypeTag: args.base.coinTypeTag,
+        amountIn: usdToAtomic(buyUsd, args.quote.priceUsd, args.quote.decimals),
         minAmountOut: usdToAtomic(
           buyUsd * (1 - args.slippageTolerance),
-          base.priceUsd,
-          base.decimals
+          args.base.priceUsd,
+          args.base.decimals
         ),
         direction: 1
       }
     ];
+  }
+  if (trades[0].amountIn <= 0n) {
+    return {
+      kind: "noop",
+      rationale: "Computed trade size rounds to zero \u2014 hold.",
+      signals: { ...args.signals, actualBaseWeight, absDrift, baseExcessUsd }
+    };
   }
   const direction = baseExcessUsd > 0 ? "trim base (de-risk)" : "add base (yield tilt)";
   return {
@@ -232,10 +248,18 @@ function evaluate(input) {
   if (input.currentEpoch >= input.policy.expiryEpoch) {
     return { kind: "noop", rationale: `Vault expired epoch ${input.policy.expiryEpoch}.` };
   }
-  const base = input.holdings.find((h) => h.coinTypeTag === CONFIG.baseTypeTag);
-  const quote = input.holdings.find((h) => h.coinTypeTag === CONFIG.quoteTypeTag);
+  const base = findHolding(input.holdings, CONFIG.baseTypeTag);
+  const quote = findHolding(input.holdings, CONFIG.quoteTypeTag);
   if (!base || !quote) {
-    return { kind: "noop", rationale: `Asset missing (base=${!!base}, quote=${!!quote}).` };
+    const have = input.holdings.map((h) => h.coinTypeTag).join(", ");
+    return {
+      kind: "noop",
+      rationale: `Asset missing (base=${!!base}, quote=${!!quote}). Holdings: [${have}]`,
+      signals: {
+        expectedBase: CONFIG.baseTypeTag,
+        expectedQuote: CONFIG.quoteTypeTag
+      }
+    };
   }
   const navUsd = base.valueUsd + quote.valueUsd;
   if (navUsd <= 0) return { kind: "noop", rationale: "NAV is zero." };
@@ -276,6 +300,8 @@ function evaluate(input) {
   };
   return buildRebalancePlan({
     input,
+    base,
+    quote,
     targetBaseWeight: target,
     driftThreshold,
     slippageTolerance: slippage,
@@ -285,14 +311,14 @@ function evaluate(input) {
 var strategy = {
   id: STRATEGY_ID,
   name: "Momentum Yield Maximizer",
-  version: "1.0.0",
+  version: "1.0.1",
   description: "Deterministic yield maximizer: multi-horizon momentum + vol/drawdown regime detection dynamically tilts SUI/stable allocation (32\u201372% base) to capture appreciation in uptrends and preserve capital in stress. No LLM \u2014 MemWal price history only.",
   evaluate: async (input) => evaluate(input),
   prepareMemoryWrite: async ({
     input,
     decision
   }) => {
-    const base = input.holdings.find((h) => h.coinTypeTag === CONFIG.baseTypeTag);
+    const base = findHolding(input.holdings, CONFIG.baseTypeTag);
     if (!base || base.priceUsd <= 0) return null;
     const history = readPriceHistory(input.memory.facts);
     history.push(base.priceUsd);

@@ -240,7 +240,7 @@ function describe(kind: TimelineEntry['kind'], p: Record<string, unknown>): stri
     case 'artifact_published':
       return `Artifact ${p['label'] ?? p['artifact_slot'] ?? ''} published`;
     case 'cross_agent_read':
-      return `Cross-agent memory read`;
+      return `Cross-agent MemWal read ← writer ${shortenAddr(p['writer_id'])}`;
     case 'message_sent':
       return `Message sent → ${shortenAddr(p['recipient_inbox_id'])}`;
     case 'message_received':

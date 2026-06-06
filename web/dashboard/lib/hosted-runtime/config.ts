@@ -3,6 +3,8 @@ import {
   NETWORK,
   SYNAPSE_PACKAGE_HISTORY,
   SYNAPSE_PACKAGE_ID,
+  SYNAPSE_TESTNET_ENCLAVE_OBJECT_ID,
+  SYNAPSE_TESTNET_ENCLAVE_URL,
 } from '@/lib/synapse-config';
 
 export function isHostedRuntimeApiEnabled(): boolean {
@@ -92,7 +94,7 @@ export function defaultTickIntervalMinutes(): number {
   return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 10;
 }
 
-/** Default Nautilus enclave HTTP base URL for hosted Fargate tasks. */
+/** Dashboard-server override for Nautilus enclave HTTP base URL. */
 export function defaultEnclaveUrl(): string | null {
   const url =
     process.env.SYNAPSE_HOSTED_RUNTIME_ENCLAVE_URL ??
@@ -102,7 +104,7 @@ export function defaultEnclaveUrl(): string | null {
   return url.trim().replace(/\/$/, '');
 }
 
-/** Default registered `Enclave` object id for attested ticks. */
+/** Dashboard-server override for registered `Enclave` object id. */
 export function defaultEnclaveObjectId(): string | null {
   const raw =
     process.env.SYNAPSE_HOSTED_RUNTIME_ENCLAVE_OBJECT_ID ??
@@ -112,6 +114,29 @@ export function defaultEnclaveObjectId(): string | null {
   if (!raw || !raw.trim()) return null;
   const trimmed = raw.trim();
   return trimmed.startsWith('0x') ? trimmed : `0x${trimmed}`;
+}
+
+/**
+ * Synapse-operated shared enclave defaults (server env overrides, then testnet
+ * constants). Used for UI prefills and server-side auto-resolution when a vault
+ * requires attestation but the DAO did not supply custom enclave fields.
+ */
+export function sharedSynapseEnclaveDefaults(): {
+  url: string | null;
+  objectId: string | null;
+} {
+  const url =
+    defaultEnclaveUrl() ??
+    (NETWORK === 'testnet' ? SYNAPSE_TESTNET_ENCLAVE_URL.replace(/\/$/, '') : null);
+  const objectId =
+    defaultEnclaveObjectId() ??
+    (NETWORK === 'testnet' ? SYNAPSE_TESTNET_ENCLAVE_OBJECT_ID : null);
+  return { url, objectId };
+}
+
+export function synapseManagedEnclaveAvailable(): boolean {
+  const { url, objectId } = sharedSynapseEnclaveDefaults();
+  return Boolean(url && objectId);
 }
 
 export function normalizeEnclaveUrl(url: string | undefined | null): string | null {

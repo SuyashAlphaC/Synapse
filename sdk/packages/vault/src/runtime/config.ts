@@ -177,6 +177,23 @@ export interface RuntimeConfig {
    * `SYNAPSE_WAL_REFUEL_AMOUNT`. Default 0.05 SUI.
    */
   walRefuelAmount?: bigint;
+  /**
+   * Peer vault object IDs to read via shared MemWal namespace each tick.
+   * Wired from `SYNAPSE_CROSS_AGENT_PEERS` (comma-separated 0x… ids).
+   */
+  crossAgentPeerVaultIds?: readonly string[];
+  /** Semantic recall query for cross-agent MemWal reads. */
+  crossAgentRecallQuery?: string;
+  /**
+   * When false, skip Sui Stack Messaging consume/emit even if channels are
+   * attached. Default true. Set `SYNAPSE_MESSAGING_ENABLED=0` to disable.
+   */
+  messagingEnabled?: boolean;
+  /**
+   * Path to `messaging-runtime-bridge/dist/rpc.js`. Defaults to repo-relative
+   * path when present; override via `SYNAPSE_MESSAGING_BRIDGE_PATH`.
+   */
+  messagingBridgeScriptPath?: string;
 }
 
 export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -272,6 +289,16 @@ export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig
       ? { walrusAllowlist: parseWalrusAllowlistFromEnv(env) as WalrusStrategyAllowlist }
       : {}),
     ...parseWalExchangeEnv(env, walrusNetwork),
+    ...(parsePeerVaultIds(env.SYNAPSE_CROSS_AGENT_PEERS)
+      ? { crossAgentPeerVaultIds: parsePeerVaultIds(env.SYNAPSE_CROSS_AGENT_PEERS)! }
+      : {}),
+    ...(env.SYNAPSE_CROSS_AGENT_QUERY
+      ? { crossAgentRecallQuery: env.SYNAPSE_CROSS_AGENT_QUERY }
+      : {}),
+    ...(parseDisableEnv(env.SYNAPSE_MESSAGING_ENABLED) ? { messagingEnabled: false } : {}),
+    ...(env.SYNAPSE_MESSAGING_BRIDGE_PATH
+      ? { messagingBridgeScriptPath: env.SYNAPSE_MESSAGING_BRIDGE_PATH }
+      : {}),
   };
 }
 
@@ -348,6 +375,21 @@ function parseDisableEnv(value: string | undefined): boolean {
   if (value === undefined) return false;
   const lowered = value.trim().toLowerCase();
   return lowered === '0' || lowered === 'false' || lowered === 'no' || lowered === 'off';
+}
+
+function parsePeerVaultIds(raw: string | undefined): readonly string[] | undefined {
+  if (!raw?.trim()) return undefined;
+  const ids = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (ids.length === 0) return undefined;
+  for (const id of ids) {
+    if (!/^0x[0-9a-fA-F]+$/.test(id)) {
+      throw new Error(`SYNAPSE_CROSS_AGENT_PEERS: "${id}" is not a 0x-prefixed object id`);
+    }
+  }
+  return ids;
 }
 
 const TESTNET_WAL_EXCHANGE_IDS = [

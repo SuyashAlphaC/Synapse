@@ -21,8 +21,21 @@ import { VaultRuntime } from '../runtime.js';
 import { bootstrapConfig } from '../bootstrap.js';
 import { createLogger } from '../logger.js';
 import { sendAlert } from '../alerts.js';
+import { createMessagingClientForRuntime } from '../messaging-bootstrap.js';
 
 const logger = createLogger('synapse-vault-runtime-cli');
+
+async function resolveSessionKeySecret(config: {
+  sessionKeyEnv?: string;
+  sessionKeyPath?: string;
+}): Promise<string | null> {
+  if (config.sessionKeyEnv) return config.sessionKeyEnv;
+  if (config.sessionKeyPath) {
+    const { readFile } = await import('node:fs/promises');
+    return (await readFile(config.sessionKeyPath, 'utf8')).trim();
+  }
+  return null;
+}
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
@@ -48,12 +61,27 @@ async function main(): Promise<void> {
       tickIntervalMs: config.tickIntervalMs ?? 600_000,
       sessionKeySource,
       memwalDelegateSource,
+      crossAgentPeers: config.crossAgentPeerVaultIds?.length ?? 0,
+      messagingEnabled: config.messagingEnabled !== false,
       mode: args.once ? 'once' : 'continuous',
     },
     'runtime starting',
   );
 
-  const runtime = new VaultRuntime(config);
+  const sessionKeySecret = await resolveSessionKeySecret(config);
+  const messagingClient =
+    sessionKeySecret !== null
+      ? createMessagingClientForRuntime({ config, sessionKey: sessionKeySecret })
+      : null;
+  if (messagingClient) {
+    logger.info('Sui Stack Messaging bridge active (subprocess)');
+  } else if (config.messagingEnabled !== false) {
+    logger.info('Sui Stack Messaging bridge unavailable — inbox/outbox consume/emit disabled');
+  }
+
+  const runtime = new VaultRuntime(config, {
+    ...(messagingClient ? { messagingClient } : {}),
+  });
 
   if (args.once) {
     const receipt = await runtime.tickOnce();

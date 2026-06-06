@@ -37,6 +37,7 @@ export interface DeployVaultRuntimeArgs {
   runtimeImageUri: string;
   enclaveUrl?: string | null;
   enclaveObjectId?: string | null;
+  crossAgentPeerVaultIds?: string | null;
 }
 
 function cfnClient(): CloudFormationClient {
@@ -125,6 +126,7 @@ export async function deployVaultRuntimeStack(args: DeployVaultRuntimeArgs): Pro
     walrusNetwork: defaultWalrusNetwork(),
     enclaveUrl: args.enclaveUrl ?? null,
     enclaveObjectId: args.enclaveObjectId ?? null,
+    crossAgentPeerVaultIds: args.crossAgentPeerVaultIds ?? null,
     vpcId,
     subnetIds,
     awsRegion: region,

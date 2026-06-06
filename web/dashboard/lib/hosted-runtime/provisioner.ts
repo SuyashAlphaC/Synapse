@@ -18,8 +18,7 @@ import {
   ListRulesCommand,
 } from '@aws-sdk/client-eventbridge';
 import {
-  defaultEnclaveObjectId,
-  defaultEnclaveUrl,
+  sharedSynapseEnclaveDefaults,
   defaultPackageId,
   defaultTickIntervalMinutes,
   hostedRuntimePaths,
@@ -42,9 +41,14 @@ import type {
   EnableHostedRuntimeResult,
   HostedRuntimeStatus,
   UpdateHostedRuntimeConfigRequest,
+  UpdateHostedRuntimeCoordinationRequest,
 } from './types';
 import { assertVaultId, parseSessionKeyFileJson } from './parse-key';
 import { deployVaultRuntimeStack } from './cfn-deploy';
+import {
+  normalizeCrossAgentPeerVaultIds,
+  splitCrossAgentPeerVaultIds,
+} from './cross-agent-peers';
 
 function cfnClient(): CloudFormationClient {
   return new CloudFormationClient({ region: hostedRuntimeRegion() });
@@ -76,7 +80,9 @@ function ecsClient(): ECSClient {
   return new ECSClient({ region: hostedRuntimeRegion() });
 }
 
-async function isAttestationConfiguredOnTask(vaultShortId: string): Promise<boolean> {
+async function readLatestTaskEnvironment(
+  vaultShortId: string,
+): Promise<Record<string, string>> {
   try {
     const family = `SynapseVaultRuntime-${vaultShortId}`;
     const listed = await ecsClient().send(
@@ -87,14 +93,46 @@ async function isAttestationConfiguredOnTask(vaultShortId: string): Promise<bool
       }),
     );
     const arn = listed.taskDefinitionArns?.[0];
-    if (!arn) return false;
+    if (!arn) return {};
     const td = await ecsClient().send(new DescribeTaskDefinitionCommand({ taskDefinition: arn }));
     const env = td.taskDefinition?.containerDefinitions?.[0]?.environment ?? [];
-    const hasUrl = env.some((e) => e.name === 'SYNAPSE_ENCLAVE_URL' && e.value);
-    const hasId = env.some((e) => e.name === 'SYNAPSE_ENCLAVE_OBJECT_ID' && e.value);
-    return Boolean(hasUrl && hasId);
+    const out: Record<string, string> = {};
+    for (const entry of env) {
+      if (entry.name && entry.value) out[entry.name] = entry.value;
+    }
+    return out;
   } catch {
-    return false;
+    return {};
+  }
+}
+
+async function isAttestationConfiguredOnTask(vaultShortId: string): Promise<boolean> {
+  const env = await readLatestTaskEnvironment(vaultShortId);
+  return Boolean(env.SYNAPSE_ENCLAVE_URL && env.SYNAPSE_ENCLAVE_OBJECT_ID);
+}
+
+async function readCrossAgentPeersFromTask(vaultShortId: string): Promise<string[]> {
+  const env = await readLatestTaskEnvironment(vaultShortId);
+  return splitCrossAgentPeerVaultIds(env.SYNAPSE_CROSS_AGENT_PEERS);
+}
+
+function resolveCrossAgentPeersInput(
+  raw: string | undefined,
+  vaultId: string,
+): string | null {
+  return normalizeCrossAgentPeerVaultIds(raw, { selfVaultId: vaultId });
+}
+
+function assertMemwalForCrossAgent(
+  crossAgentPeerVaultIds: string | null,
+  memwalDelegateHex: string | null,
+  memwalSecretExists: boolean,
+): void {
+  if (!crossAgentPeerVaultIds) return;
+  if (!memwalDelegateHex && !memwalSecretExists) {
+    throw new Error(
+      'Cross-agent reads require MemWal — mint with MemWal enabled and upload a .key file that includes memwalDelegate',
+    );
   }
 }
 
@@ -106,11 +144,16 @@ function resolveEnclaveConfigFromFields(body: {
   enclaveUrl: string | null;
   enclaveObjectId: string | null;
 } {
-  const enclaveUrl =
-    normalizeEnclaveUrl(body.enclaveUrl) ?? defaultEnclaveUrl();
-  const enclaveObjectId = body.enclaveObjectId
+  let enclaveUrl = normalizeEnclaveUrl(body.enclaveUrl);
+  let enclaveObjectId = body.enclaveObjectId
     ? normalizeEnclaveObjectId(body.enclaveObjectId)
-    : defaultEnclaveObjectId();
+    : null;
+
+  if (body.requiresAttestation && (!enclaveUrl || !enclaveObjectId)) {
+    const shared = sharedSynapseEnclaveDefaults();
+    enclaveUrl = enclaveUrl ?? shared.url;
+    enclaveObjectId = enclaveObjectId ?? shared.objectId;
+  }
 
   if (body.requiresAttestation && (!enclaveUrl || !enclaveObjectId)) {
     throw new Error(
@@ -179,6 +222,8 @@ export async function getHostedRuntimeStatus(vaultId: string): Promise<HostedRun
       scheduleEnabled: null,
       secretsReady: { session: false, memwal: false, anthropic: false },
       attestationConfigured: false,
+      crossAgentConfigured: false,
+      crossAgentPeerVaultIds: [],
     };
   }
   const names = secretNamesForVault(vaultId);
@@ -214,6 +259,10 @@ export async function getHostedRuntimeStatus(vaultId: string): Promise<HostedRun
     phase === 'live' || phase === 'paused' || phase === 'provisioning'
       ? await isAttestationConfiguredOnTask(shortId)
       : false;
+  const crossAgentPeerVaultIds =
+    phase === 'live' || phase === 'paused' || phase === 'provisioning'
+      ? await readCrossAgentPeersFromTask(shortId)
+      : [];
 
   return {
     enabled: true,
@@ -232,6 +281,8 @@ export async function getHostedRuntimeStatus(vaultId: string): Promise<HostedRun
       anthropic: anthropicOk,
     },
     attestationConfigured,
+    crossAgentConfigured: crossAgentPeerVaultIds.length > 0,
+    crossAgentPeerVaultIds,
   };
 }
 
@@ -252,6 +303,7 @@ function spawnCdkDeploy(args: {
   memwalConfigured: boolean;
   enclaveUrl: string | null;
   enclaveObjectId: string | null;
+  crossAgentPeerVaultIds: string | null;
 }): void {
   const { awsDir } = hostedRuntimePaths();
   const names = secretNamesForVault(args.vaultId);
@@ -286,6 +338,9 @@ function spawnCdkDeploy(args: {
   }
   if (args.enclaveObjectId) {
     cdkArgs.push('-c', `enclaveObjectId=${args.enclaveObjectId}`);
+  }
+  if (args.crossAgentPeerVaultIds) {
+    cdkArgs.push('-c', `crossAgentPeerVaultIds=${args.crossAgentPeerVaultIds}`);
   }
 
   const child = spawn('npx', cdkArgs, {
@@ -334,6 +389,10 @@ export async function enableHostedRuntime(
   }
 
   const { enclaveUrl, enclaveObjectId } = resolveEnclaveConfig(body);
+  const crossAgentPeerVaultIds = resolveCrossAgentPeersInput(
+    body.crossAgentPeerVaultIds,
+    body.vaultId,
+  );
 
   await upsertVaultSecrets({
     vaultId: body.vaultId,
@@ -341,6 +400,12 @@ export async function enableHostedRuntime(
     memwalDelegateHex: parsed.memwalDelegateHex,
     anthropicApiKey: anthropic,
   });
+
+  assertMemwalForCrossAgent(
+    crossAgentPeerVaultIds,
+    parsed.memwalDelegateHex,
+    false,
+  );
 
   const names = secretNamesForVault(body.vaultId);
   const imageUri = sharedRuntimeImageUri();
@@ -364,6 +429,7 @@ export async function enableHostedRuntime(
       runtimeImageUri: imageUri,
       enclaveUrl,
       enclaveObjectId,
+      crossAgentPeerVaultIds,
     });
   } else {
     spawnCdkDeploy({
@@ -373,6 +439,7 @@ export async function enableHostedRuntime(
       memwalConfigured: Boolean(parsed.memwalDelegateHex),
       enclaveUrl,
       enclaveObjectId,
+      crossAgentPeerVaultIds,
     });
   }
 
@@ -380,12 +447,15 @@ export async function enableHostedRuntime(
     enclaveUrl && enclaveObjectId
       ? ' Nautilus attestation configured — every tick will call the enclave.'
       : '';
+  const crossAgentNote = crossAgentPeerVaultIds
+    ? ' MemWal cross-agent peers configured.'
+    : '';
 
   return {
     vaultId: body.vaultId,
     stackName: stackNameForVault(body.vaultId),
     phase: 'provisioning',
-    message: `${provisioningMessage(imageUri)}${attestationNote}`,
+    message: `${provisioningMessage(imageUri)}${attestationNote}${crossAgentNote}`,
   };
 }
 
@@ -454,6 +524,11 @@ export async function updateHostedRuntimeConfig(
     runtimeImageUri: imageUri,
     enclaveUrl,
     enclaveObjectId,
+    crossAgentPeerVaultIds:
+      normalizeCrossAgentPeerVaultIds(
+        (await readCrossAgentPeersFromTask(vaultShortId(body.vaultId))).join(','),
+        { selfVaultId: body.vaultId },
+      ) ?? null,
   });
 
   return {
@@ -462,6 +537,71 @@ export async function updateHostedRuntimeConfig(
     phase: 'provisioning',
     message:
       'Nautilus enclave config applied — CloudFormation stack update started (typically 2–4 min). Resume ticks when live.',
+  };
+}
+
+export async function updateHostedRuntimeCoordination(
+  body: UpdateHostedRuntimeCoordinationRequest,
+): Promise<EnableHostedRuntimeResult> {
+  if (!isHostedRuntimeApiEnabled()) {
+    throw new Error('Synapse hosted runtime API is disabled on this dashboard server');
+  }
+  assertVaultId(body.vaultId);
+
+  const status = await getHostedRuntimeStatus(body.vaultId);
+  if (status.phase === 'not_provisioned' || status.phase === 'not_configured') {
+    throw new Error('Hosted runtime is not provisioned — use Enable hosted runtime first');
+  }
+  if (status.phase === 'provisioning') {
+    throw new Error('Stack update already in progress — wait for provisioning to finish');
+  }
+
+  const crossAgentPeerVaultIds = resolveCrossAgentPeersInput(
+    body.crossAgentPeerVaultIds,
+    body.vaultId,
+  );
+
+  const names = secretNamesForVault(body.vaultId);
+  const [memwalOk, anthropicOk] = await Promise.all([
+    describeSecretExists(names.memwal),
+    describeSecretExists(names.anthropic),
+  ]);
+  assertMemwalForCrossAgent(crossAgentPeerVaultIds, null, memwalOk);
+
+  const shortId = vaultShortId(body.vaultId);
+  const taskEnv = await readLatestTaskEnvironment(shortId);
+  const enclaveUrl = taskEnv.SYNAPSE_ENCLAVE_URL ?? null;
+  const enclaveObjectId = taskEnv.SYNAPSE_ENCLAVE_OBJECT_ID ?? null;
+
+  const imageUri = sharedRuntimeImageUri();
+  if (!imageUri) {
+    throw new Error('SYNAPSE_HOSTED_RUNTIME_ECR_IMAGE is required');
+  }
+
+  await deployVaultRuntimeStack({
+    vaultId: body.vaultId,
+    vaultShortId: shortId,
+    packageId: defaultPackageId(),
+    packageHistory: packageHistoryCsv(),
+    sessionSecretName: names.session,
+    memwalSecretName: memwalOk ? names.memwal : null,
+    anthropicSecretName: anthropicOk ? names.anthropic : null,
+    tickIntervalMinutes: status.tickIntervalMinutes,
+    runtimeImageUri: imageUri,
+    enclaveUrl,
+    enclaveObjectId,
+    crossAgentPeerVaultIds,
+  });
+
+  const peerNote = crossAgentPeerVaultIds
+    ? ' Cross-agent peers updated on the Fargate task.'
+    : ' Cross-agent peers cleared on the Fargate task.';
+
+  return {
+    vaultId: body.vaultId,
+    stackName: stackNameForVault(body.vaultId),
+    phase: 'provisioning',
+    message: `Coordination config applied — CloudFormation stack update started (typically 2–4 min).${peerNote}`,
   };
 }
 

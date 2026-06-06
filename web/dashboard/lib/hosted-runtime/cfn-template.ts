@@ -16,6 +16,7 @@ export interface VaultRuntimeStackSpec {
   walrusNetwork: 'testnet' | 'mainnet';
   enclaveUrl?: string | null;
   enclaveObjectId?: string | null;
+  crossAgentPeerVaultIds?: string | null;
   vpcId: string;
   subnetIds: readonly string[];
   /** AWS region for ARNs in task definition (e.g. us-east-1). */
@@ -78,6 +79,13 @@ export function buildVaultRuntimeTemplate(spec: VaultRuntimeStackSpec): string {
   }
   if (spec.enclaveObjectId) {
     environment.push({ Name: 'SYNAPSE_ENCLAVE_OBJECT_ID', Value: spec.enclaveObjectId });
+  }
+  environment.push({
+    Name: 'SYNAPSE_MESSAGING_BRIDGE_PATH',
+    Value: '/app/examples/messaging-runtime-bridge/dist/rpc.js',
+  });
+  if (spec.crossAgentPeerVaultIds) {
+    environment.push({ Name: 'SYNAPSE_CROSS_AGENT_PEERS', Value: spec.crossAgentPeerVaultIds });
   }
 
   const template = {

@@ -72,7 +72,19 @@ export const SYNAPSE_PACKAGE_HISTORY: readonly string[] = [
 
 /** Registered testnet `Enclave<DecisionEnclave>` — prefill for hosted runtime UI. */
 export const SYNAPSE_TESTNET_ENCLAVE_OBJECT_ID =
-  '0x361b7a26380d5312247ff0afca78086c996ecc159bd30ca3b0a5ee4bf949ab9f';
+  '0x2e170c4465913426e8a1a934fac1cc93b863dd28205778bf2d3cff11deeaf4be';
+
+/**
+ * HTTP base URL for Synapse's shared testnet decision enclave (Path A dev box).
+ * Override via `NEXT_PUBLIC_SYNAPSE_TESTNET_ENCLAVE_URL` when the endpoint moves.
+ */
+export const SYNAPSE_TESTNET_ENCLAVE_URL =
+  process.env['NEXT_PUBLIC_SYNAPSE_TESTNET_ENCLAVE_URL'] ??
+  'http://54.166.136.55:3000';
+
+/** Deploy + on-chain registration guide for self-hosted Nautilus enclaves. */
+export const SYNAPSE_ENCLAVE_DOCS_URL =
+  'https://github.com/SuyashAlphaC/Synapse/blob/main/enclave/README.md';
 
 /**
  * MemWal Move contract IDs (per network). Sourced from

@@ -51,6 +51,8 @@ export interface VaultRuntimeStackProps extends StackProps {
   enclaveUrl?: string | null;
   /** On-chain `Enclave` object id — only for attested vaults. Optional. */
   enclaveObjectId?: string | null;
+  /** Comma-separated peer vault ids for MemWal cross-agent reads (shared namespace). */
+  crossAgentPeerVaultIds?: string | null;
   /**
    * When set, skip the per-stack Docker build and use this image URI
    * (shared ECR tag). Used by the dashboard hosted-runtime provisioner.
@@ -89,7 +91,8 @@ export class VaultRuntimeStack extends Stack {
               'infrastructure/aws/node_modules',
               'enclave',
               'move',
-              'examples',
+              'examples/messaging-demo',
+              'examples/publish',
               'docs',
               '**/.next',
               '**/.turbo',
@@ -168,6 +171,10 @@ export class VaultRuntimeStack extends Stack {
         // for a signed decision and gates the rebalance PTB on attest_decision.
         ...(props.enclaveUrl ? { SYNAPSE_ENCLAVE_URL: props.enclaveUrl } : {}),
         ...(props.enclaveObjectId ? { SYNAPSE_ENCLAVE_OBJECT_ID: props.enclaveObjectId } : {}),
+        SYNAPSE_MESSAGING_BRIDGE_PATH: '/app/examples/messaging-runtime-bridge/dist/rpc.js',
+        ...(props.crossAgentPeerVaultIds
+          ? { SYNAPSE_CROSS_AGENT_PEERS: props.crossAgentPeerVaultIds }
+          : {}),
       },
       secrets: {
         SYNAPSE_SESSION_KEY: ecs.Secret.fromSecretsManager(sessionSecret),
