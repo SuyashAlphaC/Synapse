@@ -91,3 +91,39 @@ export function defaultTickIntervalMinutes(): number {
   const raw = Number(process.env.SYNAPSE_HOSTED_RUNTIME_TICK_MINUTES ?? 10);
   return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 10;
 }
+
+/** Default Nautilus enclave HTTP base URL for hosted Fargate tasks. */
+export function defaultEnclaveUrl(): string | null {
+  const url =
+    process.env.SYNAPSE_HOSTED_RUNTIME_ENCLAVE_URL ??
+    process.env.SYNAPSE_ENCLAVE_URL ??
+    null;
+  if (!url || !url.trim()) return null;
+  return url.trim().replace(/\/$/, '');
+}
+
+/** Default registered `Enclave` object id for attested ticks. */
+export function defaultEnclaveObjectId(): string | null {
+  const raw =
+    process.env.SYNAPSE_HOSTED_RUNTIME_ENCLAVE_OBJECT_ID ??
+    process.env.SYNAPSE_ENCLAVE_OBJECT_ID ??
+    process.env.NEXT_PUBLIC_SYNAPSE_ENCLAVE_OBJECT_ID ??
+    null;
+  if (!raw || !raw.trim()) return null;
+  const trimmed = raw.trim();
+  return trimmed.startsWith('0x') ? trimmed : `0x${trimmed}`;
+}
+
+export function normalizeEnclaveUrl(url: string | undefined | null): string | null {
+  if (!url?.trim()) return null;
+  return url.trim().replace(/\/$/, '');
+}
+
+export function normalizeEnclaveObjectId(id: string | undefined | null): string | null {
+  if (!id?.trim()) return null;
+  const trimmed = id.trim();
+  if (!/^0x[0-9a-fA-F]{64}$/.test(trimmed.startsWith('0x') ? trimmed : `0x${trimmed}`)) {
+    throw new Error('enclaveObjectId must be a 32-byte hex object id (0x…)');
+  }
+  return trimmed.startsWith('0x') ? trimmed : `0x${trimmed}`;
+}

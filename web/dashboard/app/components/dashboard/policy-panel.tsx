@@ -1131,6 +1131,9 @@ function AttestationModal({
             Nautilus: the AI decision is produced + signed inside an attested TEE
             enclave; the Move VM verifies that signature before the swap. Requires
             a registered enclave (real Oyster/AWS Nitro, or a dev box on testnet).
+            {enabling
+              ? ' If you use Hosted runtime, set enclave URL + object ID when enabling — every tick is attested on-chain.'
+              : null}
           </p>
           {error && <ErrorBlock msg={error} />}
         </div>

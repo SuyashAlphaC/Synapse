@@ -1,4 +1,6 @@
 import {
+  defaultEnclaveObjectId,
+  defaultEnclaveUrl,
   defaultTickIntervalMinutes,
   hostedRuntimeRegion,
   isHostedRuntimeApiEnabled,
@@ -6,9 +8,14 @@ import {
   sharedRuntimeImageUri,
   useCloudFormationProvisioner,
 } from './config';
+import { NETWORK, SYNAPSE_TESTNET_ENCLAVE_OBJECT_ID } from '@/lib/synapse-config';
 
 /** Safe to expose to the browser — no secrets. */
 export function getHostedRuntimePublicConfig() {
+  const defaultObjectId =
+    defaultEnclaveObjectId() ??
+    (NETWORK === 'testnet' ? SYNAPSE_TESTNET_ENCLAVE_OBJECT_ID : null);
+
   return {
     apiEnabled: isHostedRuntimeApiEnabled(),
     region: hostedRuntimeRegion(),
@@ -16,6 +23,8 @@ export function getHostedRuntimePublicConfig() {
     defaultTickIntervalMinutes: defaultTickIntervalMinutes(),
     deployMode: hostedRuntimeDeployMode(),
     vercel: isVercelDeployment(),
+    defaultEnclaveUrl: defaultEnclaveUrl(),
+    defaultEnclaveObjectId: defaultObjectId,
   };
 }
 

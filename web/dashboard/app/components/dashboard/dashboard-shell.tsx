@@ -271,6 +271,7 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
             <HostedRuntimePanel
               vaultId={liveVault.agentId}
               needsAnthropicKey={hiredStrategy ? requiresAnthropicApiKey(hiredStrategy) : false}
+              requiresAttestation={live?.identity.requiresAttestation ?? false}
             />
           )}
           {liveVault && <InBrowserRuntimePanel vaultId={liveVault.agentId} />}

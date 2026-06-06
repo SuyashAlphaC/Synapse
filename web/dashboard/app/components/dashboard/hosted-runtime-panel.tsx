@@ -10,6 +10,8 @@ interface Props {
   vaultId: string;
   /** When true, surface Anthropic key field (LLM strategies that call Claude). */
   needsAnthropicKey?: boolean;
+  /** When true, Nautilus enclave fields are required on enable. */
+  requiresAttestation?: boolean;
 }
 
 interface PublicConfig {
@@ -19,6 +21,8 @@ interface PublicConfig {
   defaultTickIntervalMinutes: number;
   deployMode?: 'cloudformation' | 'cdk-local';
   vercel?: boolean;
+  defaultEnclaveUrl?: string | null;
+  defaultEnclaveObjectId?: string | null;
 }
 
 const TICK_OPTIONS = [5, 10, 15, 30] as const;
@@ -45,13 +49,19 @@ const PHASE_ACCENT: Record<HostedRuntimePhase, string> = {
  * Self-serve Synapse-hosted Fargate runtime. Uploads session secrets to AWS
  * Secrets Manager and triggers CDK deploy via the dashboard provisioning API.
  */
-export function HostedRuntimePanel({ vaultId, needsAnthropicKey = false }: Props) {
+export function HostedRuntimePanel({
+  vaultId,
+  needsAnthropicKey = false,
+  requiresAttestation = false,
+}: Props) {
   const toast = useToast();
   const queryClient = useQueryClient();
 
   const [keyFileText, setKeyFileText] = useState<string | null>(null);
   const [keyFileName, setKeyFileName] = useState<string | null>(null);
   const [anthropicKey, setAnthropicKey] = useState('');
+  const [enclaveUrl, setEnclaveUrl] = useState('');
+  const [enclaveObjectId, setEnclaveObjectId] = useState('');
   const [tickMinutes, setTickMinutes] = useState(10);
   const [consent, setConsent] = useState(false);
   const [enabling, setEnabling] = useState(false);
@@ -72,6 +82,20 @@ export function HostedRuntimePanel({ vaultId, needsAnthropicKey = false }: Props
       setTickMinutes(configQuery.data.defaultTickIntervalMinutes);
     }
   }, [configQuery.data?.defaultTickIntervalMinutes]);
+
+  useEffect(() => {
+    if (configQuery.data?.defaultEnclaveUrl && !enclaveUrl) {
+      setEnclaveUrl(configQuery.data.defaultEnclaveUrl);
+    }
+    if (configQuery.data?.defaultEnclaveObjectId && !enclaveObjectId) {
+      setEnclaveObjectId(configQuery.data.defaultEnclaveObjectId);
+    }
+  }, [
+    configQuery.data?.defaultEnclaveObjectId,
+    configQuery.data?.defaultEnclaveUrl,
+    enclaveObjectId,
+    enclaveUrl,
+  ]);
 
   const statusQuery = useQuery({
     queryKey: ['hosted-runtime-status', vaultId],
@@ -157,6 +181,27 @@ export function HostedRuntimePanel({ vaultId, needsAnthropicKey = false }: Props
       });
       return;
     }
+    const resolvedEnclaveUrl = enclaveUrl.trim();
+    const resolvedEnclaveObjectId = enclaveObjectId.trim();
+    if (requiresAttestation && (!resolvedEnclaveUrl || !resolvedEnclaveObjectId)) {
+      toast.push({
+        variant: 'warn',
+        title: 'Nautilus enclave required',
+        body: 'Vault policy requires attestation — set enclave URL and object ID.',
+      });
+      return;
+    }
+    if (
+      (resolvedEnclaveUrl && !resolvedEnclaveObjectId) ||
+      (!resolvedEnclaveUrl && resolvedEnclaveObjectId)
+    ) {
+      toast.push({
+        variant: 'warn',
+        title: 'Incomplete enclave config',
+        body: 'Provide both enclave URL and object ID, or leave both empty.',
+      });
+      return;
+    }
     setEnabling(true);
     try {
       const res = await fetch('/api/hosted-runtime/enable', {
@@ -166,6 +211,9 @@ export function HostedRuntimePanel({ vaultId, needsAnthropicKey = false }: Props
           vaultId,
           sessionKeyFileJson: keyFileText,
           anthropicApiKey: anthropicKey.trim() || undefined,
+          enclaveUrl: resolvedEnclaveUrl || undefined,
+          enclaveObjectId: resolvedEnclaveObjectId || undefined,
+          requiresAttestation,
           tickIntervalMinutes: tickMinutes,
           consent: true,
         }),
@@ -197,9 +245,12 @@ export function HostedRuntimePanel({ vaultId, needsAnthropicKey = false }: Props
   }, [
     anthropicKey,
     consent,
+    enclaveObjectId,
+    enclaveUrl,
     keyFileText,
     needsAnthropicKey,
     queryClient,
+    requiresAttestation,
     tickMinutes,
     toast,
     vaultId,
@@ -290,6 +341,8 @@ export function HostedRuntimePanel({ vaultId, needsAnthropicKey = false }: Props
             Secrets: session {status.secretsReady.session ? '✓' : '—'} · memwal{' '}
             {status.secretsReady.memwal ? '✓' : '—'} · anthropic{' '}
             {status.secretsReady.anthropic ? '✓' : '—'}
+            {' · '}
+            nautilus {status.attestationConfigured ? '✓' : '—'}
           </p>
         </div>
       )}
@@ -365,6 +418,40 @@ export function HostedRuntimePanel({ vaultId, needsAnthropicKey = false }: Props
               />
             </label>
           )}
+
+          <div className="grid gap-2 rounded-sm border border-divider bg-paper p-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+              Nautilus attestation
+              {requiresAttestation ? ' · required by vault policy' : ' · optional'}
+            </p>
+            <p className="text-[11px] leading-relaxed text-ink-soft">
+              When configured, every tick calls your enclave for a signed decision and stamps{' '}
+              <code className="font-mono text-[10px]">decision_attestation::attest_decision_v2</code>{' '}
+              on-chain (rebalance and noop). LLM keys should live in the enclave, not Fargate.
+            </p>
+            <label className="grid gap-1">
+              <span className="font-mono text-[10px] text-ink-mute">Enclave URL</span>
+              <input
+                type="url"
+                value={enclaveUrl}
+                disabled={enabling}
+                onChange={(e) => setEnclaveUrl(e.target.value)}
+                placeholder="https://…"
+                className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
+              />
+            </label>
+            <label className="grid gap-1">
+              <span className="font-mono text-[10px] text-ink-mute">Enclave object ID</span>
+              <input
+                type="text"
+                value={enclaveObjectId}
+                disabled={enabling}
+                onChange={(e) => setEnclaveObjectId(e.target.value)}
+                placeholder="0x…"
+                className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
+              />
+            </label>
+          </div>
 
           <label className="grid max-w-xs gap-1">
             <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">

@@ -83,19 +83,44 @@ export interface BuildRebalancePTBArgs {
    * whole transaction (including the swap) aborts unless the registered enclave
    * signed exactly this decision. Only set for vaults running attested execution.
    */
-  attestation?: {
-    enclaveObjectId: string;
-    /** The vault's hired `Strategy` object — the gate asserts code_hash matches it. */
-    strategyObjectId: string;
-    epoch: bigint;
-    /** sha256 of the strategy bundle the enclave ran (== on-chain code_hash). */
-    codeHash: number[];
-    /** sha256 of the decision the enclave produced. */
-    decisionHash: number[];
-    inputsHash: number[];
-    timestampMs: bigint;
-    signature: number[];
-  };
+  attestation?: RebalanceAttestation;
+}
+
+export interface RebalanceAttestation {
+  enclaveObjectId: string;
+  /** The vault's hired `Strategy` object — the gate asserts code_hash matches it. */
+  strategyObjectId: string;
+  epoch: bigint;
+  /** sha256 of the strategy bundle the enclave ran (== on-chain code_hash). */
+  codeHash: number[];
+  /** sha256 of the decision the enclave produced. */
+  decisionHash: number[];
+  inputsHash: number[];
+  timestampMs: bigint;
+  signature: number[];
+}
+
+/** Prepends `decision_attestation::attest_decision_v2` — shared by rebalance and noop ticks. */
+export function appendAttestationToTx(
+  tx: Transaction,
+  synapsePackageId: string,
+  vaultId: string,
+  attestation: RebalanceAttestation,
+): void {
+  tx.moveCall({
+    target: target(synapsePackageId, 'decisionAttestation', 'attest_decision_v2'),
+    arguments: [
+      tx.object(attestation.enclaveObjectId),
+      tx.object(vaultId),
+      tx.object(attestation.strategyObjectId),
+      tx.pure.u64(attestation.epoch),
+      tx.pure.vector('u8', attestation.codeHash),
+      tx.pure.vector('u8', attestation.decisionHash),
+      tx.pure.vector('u8', attestation.inputsHash),
+      tx.pure.u64(attestation.timestampMs),
+      tx.pure.vector('u8', attestation.signature),
+    ],
+  });
 }
 
 export interface BuildRebalancePTBResult {
@@ -116,21 +141,7 @@ export function buildRebalancePTB(args: BuildRebalancePTBArgs): BuildRebalancePT
   //    signature over this decision. Placed FIRST so the swap can't execute on a
   //    forged/tampered decision — the Move VM aborts the whole transaction.
   if (args.attestation) {
-    const a = args.attestation;
-    tx.moveCall({
-      target: target(synapsePackageId, 'decisionAttestation', 'attest_decision_v2'),
-      arguments: [
-        tx.object(a.enclaveObjectId),
-        tx.object(vaultId), // &mut AgentIdentity — vault_id derived + stamped on-chain
-        tx.object(a.strategyObjectId), // &Strategy — gate asserts code_hash + hired-by-vault
-        tx.pure.u64(a.epoch),
-        tx.pure.vector('u8', a.codeHash),
-        tx.pure.vector('u8', a.decisionHash),
-        tx.pure.vector('u8', a.inputsHash),
-        tx.pure.u64(a.timestampMs),
-        tx.pure.vector('u8', a.signature),
-      ],
-    });
+    appendAttestationToTx(tx, synapsePackageId, vaultId, args.attestation);
   }
 
   for (const trade of plan.trades) {

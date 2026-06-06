@@ -67,7 +67,7 @@ import type {
   StrategyInput,
   StrategyDecision,
 } from '../types.js';
-import { buildRebalancePTB, makeExecutedTrade } from '../executor.js';
+import { buildRebalancePTB, makeExecutedTrade, appendAttestationToTx, type RebalanceAttestation } from '../executor.js';
 import { requestAttestedDecision, hexToBytes } from './enclave-client.js';
 import { renderReport } from '../report.js';
 import { loadAgentState } from './state.js';
@@ -113,9 +113,6 @@ import {
 } from './messaging.js';
 import { sendAlert } from './alerts.js';
 import type { Strategy } from '../types.js';
-
-/** The attestation block accepted by `buildRebalancePTB` (Nautilus path). */
-type RebalanceAttestation = NonNullable<Parameters<typeof buildRebalancePTB>[0]['attestation']>;
 
 export type { RuntimeConfig } from './config.js';
 
@@ -398,6 +395,12 @@ export class VaultRuntime {
           }
         : {}),
     });
+    if (resolution.walrusError) {
+      throw new Error(
+        `hired strategy ${agent.identity.strategyId} could not be loaded from Walrus: ${resolution.walrusError}`,
+      );
+    }
+
     if (resolution.source === 'walrus' && resolution.walrus) {
       this.#logger.info(
         {
@@ -577,12 +580,19 @@ export class VaultRuntime {
     // Attested execution (Nautilus): when an enclave is configured, the DECISION
     // comes from the attested enclave, not the local strategy. The enclave's
     // signed target weight drives the deterministic rebalancer, and its signature
-    // is carried into the rebalance PTB to gate the swap on-chain. An attested
-    // vault that can't reach its enclave SKIPS the tick — it must never fall back
-    // to an unattested trade.
+    // is carried into every tick PTB (rebalance + noop) to stamp on-chain.
+    // An attested vault that can't reach its enclave SKIPS the tick — it must
+    // never fall back to an unattested trade. When the on-chain gate requires
+    // attestation but env is missing, fail closed before any decision runs.
+    if (agent.requiresAttestation && !this.#enclaveConfigured()) {
+      throw new Error(
+        'vault requires enclave attestation but SYNAPSE_ENCLAVE_URL / SYNAPSE_ENCLAVE_OBJECT_ID are not configured',
+      );
+    }
+
     let decision: StrategyDecision;
     let attestation: RebalanceAttestation | undefined;
-    if (this.#config.enclaveUrl && this.#config.enclaveObjectId) {
+    if (this.#enclaveConfigured()) {
       const result = await this.#attestedDecision(input, agent.identity.strategyId);
       decision = result.decision;
       attestation = result.attestation;
@@ -644,6 +654,7 @@ export class VaultRuntime {
         agent.identity.strategyId,
         alpha,
         royaltyMist,
+        attestation,
       );
       // No trade happened, so post-tick holdings == pre-tick holdings.
       // Save the snapshot BEFORE the (best-effort) memory write so a relayer
@@ -1119,6 +1130,7 @@ export class VaultRuntime {
     strategyId: string,
     alpha: { posBps: number; negBps: number },
     royaltyMist: bigint,
+    attestation?: RebalanceAttestation,
   ): Promise<ExecutionReceipt> {
     // Publish audit blob to Walrus — WAL is prefunded adaptively.
     const sealOpts = this.#sealOptions();
@@ -1139,6 +1151,9 @@ export class VaultRuntime {
     }
 
     const tx = new Transaction();
+    if (attestation) {
+      appendAttestationToTx(tx, this.#config.packageId, this.#config.agentId, attestation);
+    }
     if (upload) {
       publishArtifactCall(tx, this.#config.packageId, {
         agentId: this.#config.agentId,
@@ -1288,6 +1303,10 @@ export class VaultRuntime {
       signature: hexToBytes(dec.signatureHex),
     };
     return { decision, attestation };
+  }
+
+  #enclaveConfigured(): boolean {
+    return Boolean(this.#config.enclaveUrl && this.#config.enclaveObjectId);
   }
 
   #sealOptions(): SealUploadOptions | undefined {

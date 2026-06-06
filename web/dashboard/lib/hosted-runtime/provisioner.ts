@@ -6,6 +6,11 @@ import {
   DescribeStacksCommand,
 } from '@aws-sdk/client-cloudformation';
 import {
+  DescribeTaskDefinitionCommand,
+  ECSClient,
+  ListTaskDefinitionsCommand,
+} from '@aws-sdk/client-ecs';
+import {
   DescribeRuleCommand,
   DisableRuleCommand,
   EnableRuleCommand,
@@ -13,6 +18,8 @@ import {
   ListRulesCommand,
 } from '@aws-sdk/client-eventbridge';
 import {
+  defaultEnclaveObjectId,
+  defaultEnclaveUrl,
   defaultPackageId,
   defaultTickIntervalMinutes,
   hostedRuntimePaths,
@@ -20,6 +27,8 @@ import {
   isHostedRuntimeApiEnabled,
   isVercelDeployment,
   logGroupForVault,
+  normalizeEnclaveObjectId,
+  normalizeEnclaveUrl,
   packageHistoryCsv,
   secretNamesForVault,
   sharedRuntimeImageUri,
@@ -58,6 +67,57 @@ function mapStackPhase(status: string | undefined): HostedRuntimeStatus['phase']
   }
 }
 
+function ecsClient(): ECSClient {
+  return new ECSClient({ region: hostedRuntimeRegion() });
+}
+
+async function isAttestationConfiguredOnTask(vaultShortId: string): Promise<boolean> {
+  try {
+    const family = `SynapseVaultRuntime-${vaultShortId}`;
+    const listed = await ecsClient().send(
+      new ListTaskDefinitionsCommand({
+        familyPrefix: family,
+        sort: 'DESC',
+        maxResults: 1,
+      }),
+    );
+    const arn = listed.taskDefinitionArns?.[0];
+    if (!arn) return false;
+    const td = await ecsClient().send(new DescribeTaskDefinitionCommand({ taskDefinition: arn }));
+    const env = td.taskDefinition?.containerDefinitions?.[0]?.environment ?? [];
+    const hasUrl = env.some((e) => e.name === 'SYNAPSE_ENCLAVE_URL' && e.value);
+    const hasId = env.some((e) => e.name === 'SYNAPSE_ENCLAVE_OBJECT_ID' && e.value);
+    return Boolean(hasUrl && hasId);
+  } catch {
+    return false;
+  }
+}
+
+function resolveEnclaveConfig(body: EnableHostedRuntimeRequest): {
+  enclaveUrl: string | null;
+  enclaveObjectId: string | null;
+} {
+  const enclaveUrl =
+    normalizeEnclaveUrl(body.enclaveUrl) ?? defaultEnclaveUrl();
+  const enclaveObjectId = body.enclaveObjectId
+    ? normalizeEnclaveObjectId(body.enclaveObjectId)
+    : defaultEnclaveObjectId();
+
+  if (body.requiresAttestation && (!enclaveUrl || !enclaveObjectId)) {
+    throw new Error(
+      'Nautilus enclave URL and object ID are required when vault policy requires attestation',
+    );
+  }
+  if ((enclaveUrl && !enclaveObjectId) || (!enclaveUrl && enclaveObjectId)) {
+    throw new Error('Provide both enclave URL and enclave object ID, or leave both empty');
+  }
+  if (enclaveUrl && !/^https?:\/\//i.test(enclaveUrl)) {
+    throw new Error('enclaveUrl must start with http:// or https://');
+  }
+
+  return { enclaveUrl, enclaveObjectId };
+}
+
 async function findTickScheduleRule(vaultId: string): Promise<{ name: string; enabled: boolean } | null> {
   const client = new EventBridgeClient({ region: hostedRuntimeRegion() });
   const needle = vaultId.toLowerCase();
@@ -87,12 +147,14 @@ export async function getHostedRuntimeStatus(vaultId: string): Promise<HostedRun
   const stackName = stackNameForVault(vaultId);
   const tickIntervalMinutes = defaultTickIntervalMinutes();
 
+  const shortId = vaultShortId(vaultId);
+
   if (!isHostedRuntimeApiEnabled()) {
     return {
       enabled: false,
       vaultId,
       stackName,
-      shortId: vaultShortId(vaultId),
+      shortId,
       phase: 'not_configured',
       cloudFormationStatus: null,
       cloudFormationReason: null,
@@ -100,6 +162,7 @@ export async function getHostedRuntimeStatus(vaultId: string): Promise<HostedRun
       tickIntervalMinutes,
       scheduleEnabled: null,
       secretsReady: { session: false, memwal: false, anthropic: false },
+      attestationConfigured: false,
     };
   }
   const names = secretNamesForVault(vaultId);
@@ -131,11 +194,16 @@ export async function getHostedRuntimeStatus(vaultId: string): Promise<HostedRun
     phase = 'paused';
   }
 
+  const attestationConfigured =
+    phase === 'live' || phase === 'paused' || phase === 'provisioning'
+      ? await isAttestationConfiguredOnTask(shortId)
+      : false;
+
   return {
     enabled: true,
     vaultId,
     stackName,
-    shortId: vaultShortId(vaultId),
+    shortId,
     phase,
     cloudFormationStatus,
     cloudFormationReason,
@@ -147,6 +215,7 @@ export async function getHostedRuntimeStatus(vaultId: string): Promise<HostedRun
       memwal: memwalOk,
       anthropic: anthropicOk,
     },
+    attestationConfigured,
   };
 }
 
@@ -165,6 +234,8 @@ function spawnCdkDeploy(args: {
   tickIntervalMinutes: number;
   anthropicConfigured: boolean;
   memwalConfigured: boolean;
+  enclaveUrl: string | null;
+  enclaveObjectId: string | null;
 }): void {
   const { awsDir } = hostedRuntimePaths();
   const names = secretNamesForVault(args.vaultId);
@@ -193,6 +264,12 @@ function spawnCdkDeploy(args: {
   }
   if (imageUri) {
     cdkArgs.push('-c', `runtimeImageUri=${imageUri}`);
+  }
+  if (args.enclaveUrl) {
+    cdkArgs.push('-c', `enclaveUrl=${args.enclaveUrl}`);
+  }
+  if (args.enclaveObjectId) {
+    cdkArgs.push('-c', `enclaveObjectId=${args.enclaveObjectId}`);
   }
 
   const child = spawn('npx', cdkArgs, {
@@ -240,6 +317,8 @@ export async function enableHostedRuntime(
     throw new Error('anthropicApiKey must start with sk-ant-');
   }
 
+  const { enclaveUrl, enclaveObjectId } = resolveEnclaveConfig(body);
+
   await upsertVaultSecrets({
     vaultId: body.vaultId,
     secretBase64: parsed.secretBase64,
@@ -267,6 +346,8 @@ export async function enableHostedRuntime(
       anthropicSecretName: anthropic ? names.anthropic : null,
       tickIntervalMinutes,
       runtimeImageUri: imageUri,
+      enclaveUrl,
+      enclaveObjectId,
     });
   } else {
     spawnCdkDeploy({
@@ -274,14 +355,21 @@ export async function enableHostedRuntime(
       tickIntervalMinutes,
       anthropicConfigured: Boolean(anthropic),
       memwalConfigured: Boolean(parsed.memwalDelegateHex),
+      enclaveUrl,
+      enclaveObjectId,
     });
   }
+
+  const attestationNote =
+    enclaveUrl && enclaveObjectId
+      ? ' Nautilus attestation configured — every tick will call the enclave.'
+      : '';
 
   return {
     vaultId: body.vaultId,
     stackName: stackNameForVault(body.vaultId),
     phase: 'provisioning',
-    message: provisioningMessage(imageUri),
+    message: `${provisioningMessage(imageUri)}${attestationNote}`,
   };
 }
 

@@ -15,7 +15,7 @@
 
 import type { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import type { Strategy } from '../types.js';
-import { CONSERVATIVE_REBALANCER_ID, conservativeRebalancer } from '../strategies/index.js';
+import { CONSERVATIVE_REBALANCER_ID, conservativeRebalancer, DCA_TWAP_ID, dcaTwap } from '../strategies/index.js';
 import {
   SUI_TYPE_TAG_TESTNET,
   SUI_USDC_POOL_ID_TESTNET,
@@ -39,7 +39,7 @@ import {
  * `.ts` sources stay in `src/strategies/` as the publish source for
  * `scripts/republish-strategies.ts`, but they are NOT wired here.
  */
-export type StrategySlug = typeof CONSERVATIVE_REBALANCER_ID;
+export type StrategySlug = typeof CONSERVATIVE_REBALANCER_ID | typeof DCA_TWAP_ID;
 
 /**
  * On-chain `Strategy` object IDs the runtime executes via a BUILT-IN impl (the
@@ -49,6 +49,9 @@ export type StrategySlug = typeof CONSERVATIVE_REBALANCER_ID;
 export const KNOWN_STRATEGIES: Record<string, StrategySlug> = {
   '0x46996c0f9e692968f55a63c3cbc33eb8d19145c123b7a867a02da342e617d3ec':
     CONSERVATIVE_REBALANCER_ID,
+  /** Marketplace DCA/TWAP listing — built-in fallback when Walrus blob is missing. */
+  '0xff482c3cb11c07a60e2df9b867fe7edf7edf96aa25f820b8e113094c297a16bc':
+    DCA_TWAP_ID,
 };
 
 /**
@@ -69,7 +72,7 @@ function parseEnvOverride(raw: string | undefined): Record<string, StrategySlug>
   const parsed = JSON.parse(raw) as Record<string, string>;
   const out: Record<string, StrategySlug> = {};
   for (const [k, v] of Object.entries(parsed)) {
-    if (v === CONSERVATIVE_REBALANCER_ID) {
+    if (v === CONSERVATIVE_REBALANCER_ID || v === DCA_TWAP_ID) {
       out[k] = v;
     } else {
       throw new Error(`SYNAPSE_STRATEGY_REGISTRY_JSON: unknown slug "${v}"`);
@@ -110,6 +113,14 @@ export function buildStrategy(
         ...commonPair,
         targetBaseWeight: 0.5,
         driftThreshold: 0.05,
+        slippageTolerance: 0.005,
+      });
+    case DCA_TWAP_ID:
+      return dcaTwap({
+        ...commonPair,
+        direction: 'accumulate-base',
+        cadenceTicks: 6,
+        tradeSizeUsd: 10,
         slippageTolerance: 0.005,
       });
   }

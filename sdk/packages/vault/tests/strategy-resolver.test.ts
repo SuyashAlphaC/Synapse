@@ -5,20 +5,26 @@ import {
   KNOWN_STRATEGIES,
 } from '../src/runtime/strategy-resolver.js';
 import { CONSERVATIVE_REBALANCER_ID } from '../src/strategies/conservative-rebalancer.js';
+import { DCA_TWAP_ID } from '../src/strategies/dca-twap.js';
 
 describe('built-in strategy resolution', () => {
-  it('builds the one built-in (conservative rebalancer)', () => {
+  it('builds conservative rebalancer', () => {
     const s = buildStrategy(CONSERVATIVE_REBALANCER_ID, {});
     expect(s.id).toBe(CONSERVATIVE_REBALANCER_ID);
   });
 
-  it('only the conservative rebalancer is a known built-in', () => {
-    const slugs = Object.values(KNOWN_STRATEGIES);
-    expect(slugs).toEqual([CONSERVATIVE_REBALANCER_ID]);
+  it('builds dca/twap', () => {
+    const s = buildStrategy(DCA_TWAP_ID, {});
+    expect(s.id).toBe(DCA_TWAP_ID);
   });
 
-  it('a non-conservative strategy id is NOT a built-in (Walrus-only)', () => {
-    // balanced-yield's on-chain id — no longer mapped to a built-in slug.
+  it('maps seeded marketplace strategy ids to built-ins', () => {
+    const slugs = Object.values(KNOWN_STRATEGIES);
+    expect(slugs).toContain(CONSERVATIVE_REBALANCER_ID);
+    expect(slugs).toContain(DCA_TWAP_ID);
+  });
+
+  it('a non-built-in strategy id is NOT a known slug (Walrus-only)', () => {
     const slug = resolveStrategySlug(
       '0x44c0f7c4f6e04024c9bb1c0ce1eb1965018675cd074e7a410a59c2d43887c679',
     );

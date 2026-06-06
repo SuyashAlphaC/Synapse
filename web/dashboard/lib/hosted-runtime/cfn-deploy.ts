@@ -35,6 +35,8 @@ export interface DeployVaultRuntimeArgs {
   anthropicSecretName: string | null;
   tickIntervalMinutes: number;
   runtimeImageUri: string;
+  enclaveUrl?: string | null;
+  enclaveObjectId?: string | null;
 }
 
 function cfnClient(): CloudFormationClient {
@@ -121,6 +123,8 @@ export async function deployVaultRuntimeStack(args: DeployVaultRuntimeArgs): Pro
     tickIntervalMinutes: args.tickIntervalMinutes,
     runtimeImageUri: args.runtimeImageUri,
     walrusNetwork: defaultWalrusNetwork(),
+    enclaveUrl: args.enclaveUrl ?? null,
+    enclaveObjectId: args.enclaveObjectId ?? null,
     vpcId,
     subnetIds,
     awsRegion: region,

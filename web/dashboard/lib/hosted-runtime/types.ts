@@ -22,6 +22,8 @@ export interface HostedRuntimeStatus {
     memwal: boolean;
     anthropic: boolean;
   };
+  /** True when the Fargate task definition includes SYNAPSE_ENCLAVE_* env vars. */
+  attestationConfigured: boolean;
 }
 
 export interface EnableHostedRuntimeRequest {
@@ -31,6 +33,12 @@ export interface EnableHostedRuntimeRequest {
   /** Optional — only for strategies that call Claude at tick time. */
   anthropicApiKey?: string;
   tickIntervalMinutes?: number;
+  /** Nautilus enclave base URL (Oyster / dev). Falls back to server env defaults. */
+  enclaveUrl?: string;
+  /** Registered `Enclave` object id on-chain. Falls back to server env defaults. */
+  enclaveObjectId?: string;
+  /** When true, enclave URL + object id are required (vault policy gate is on). */
+  requiresAttestation?: boolean;
   /** Must be true — confirms secrets are sent to Synapse AWS hosting. */
   consent: boolean;
 }

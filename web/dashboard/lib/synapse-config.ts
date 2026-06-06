@@ -70,6 +70,10 @@ export const SYNAPSE_PACKAGE_HISTORY: readonly string[] = [
   '0x7b3f59e42edbf2189df644e63162d0b9a2c2984755bab9d3e9557c4ddd4aa67c', // v1 (marketplace + reputation)
 ];
 
+/** Registered testnet `Enclave<DecisionEnclave>` — prefill for hosted runtime UI. */
+export const SYNAPSE_TESTNET_ENCLAVE_OBJECT_ID =
+  '0x361b7a26380d5312247ff0afca78086c996ecc159bd30ca3b0a5ee4bf949ab9f';
+
 /**
  * MemWal Move contract IDs (per network). Sourced from
  * https://docs.memwal.ai/contract/overview. The dashboard uses these

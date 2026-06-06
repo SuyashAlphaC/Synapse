@@ -14,6 +14,8 @@ export interface VaultRuntimeStackSpec {
   tickIntervalMinutes: number;
   runtimeImageUri: string;
   walrusNetwork: 'testnet' | 'mainnet';
+  enclaveUrl?: string | null;
+  enclaveObjectId?: string | null;
   vpcId: string;
   subnetIds: readonly string[];
   /** AWS region for ARNs in task definition (e.g. us-east-1). */
@@ -70,6 +72,12 @@ export function buildVaultRuntimeTemplate(spec: VaultRuntimeStackSpec): string {
   ];
   if (spec.packageHistory) {
     environment.push({ Name: 'SYNAPSE_PACKAGE_HISTORY', Value: spec.packageHistory });
+  }
+  if (spec.enclaveUrl) {
+    environment.push({ Name: 'SYNAPSE_ENCLAVE_URL', Value: spec.enclaveUrl });
+  }
+  if (spec.enclaveObjectId) {
+    environment.push({ Name: 'SYNAPSE_ENCLAVE_OBJECT_ID', Value: spec.enclaveObjectId });
   }
 
   const template = {

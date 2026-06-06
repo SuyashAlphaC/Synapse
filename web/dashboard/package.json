@@ -13,6 +13,7 @@
   "dependencies": {
     "@aws-sdk/client-cloudformation": "^3.758.0",
     "@aws-sdk/client-ec2": "^3.758.0",
+    "@aws-sdk/client-ecs": "^3.758.0",
     "@aws-sdk/client-eventbridge": "^3.758.0",
     "@aws-sdk/client-secrets-manager": "^3.758.0",
     "@mysten-incubation/memwal": "^0.0.4",

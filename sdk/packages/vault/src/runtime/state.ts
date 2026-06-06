@@ -23,6 +23,8 @@ export interface OnChainAgentState {
    * hasn't consented.
    */
   acceptsWalrusExecution: boolean;
+  /** Per-vault opt-in: trades abort unless an enclave attested this epoch. */
+  requiresAttestation: boolean;
 }
 
 export async function loadAgentState(args: {
@@ -86,8 +88,13 @@ export async function loadAgentState(args: {
     args.agentId,
     history,
   );
+  const requiresAttestation = await loadRequiresAttestation(
+    args.client,
+    args.agentId,
+    history,
+  );
 
-  return { identity, policy, balances, holdings, acceptsWalrusExecution };
+  return { identity, policy, balances, holdings, acceptsWalrusExecution, requiresAttestation };
 }
 
 /**
@@ -156,6 +163,40 @@ async function loadWalrusConsent(
       if (typeof accept === 'boolean') return accept;
     } catch {
       // Try the next package version; absence is the common case, not an error.
+    }
+  }
+  return false;
+}
+
+async function loadRequiresAttestation(
+  client: SuiJsonRpcClient,
+  agentId: string,
+  history: readonly string[],
+): Promise<boolean> {
+  for (const pkg of history) {
+    try {
+      const field = await client.getDynamicFieldObject({
+        parentId: agentId,
+        name: {
+          type: `${pkg}::agent::AttestationGateKey`,
+          value: { dummy_field: false },
+        },
+      });
+      if (field.error) continue;
+      const content = field.data?.content;
+      if (!content || content.dataType !== 'moveObject') continue;
+      const outer = asRecord(content.fields, 'AttestationGate.outer');
+      const valueWrapper = outer.value !== undefined
+        ? asRecord(outer.value, 'AttestationGate.value')
+        : outer;
+      const valueFields =
+        'fields' in valueWrapper && typeof valueWrapper.fields === 'object' && valueWrapper.fields !== null
+          ? asRecord(valueWrapper.fields, 'AttestationGate.value.fields')
+          : valueWrapper;
+      const required = valueFields['required'];
+      if (typeof required === 'boolean') return required;
+    } catch {
+      // Try the next package version; absence is the common case.
     }
   }
   return false;
