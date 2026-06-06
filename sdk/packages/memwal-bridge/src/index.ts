@@ -126,8 +126,16 @@ export interface RecallArgs {
   namespace?: string;
 }
 
-/** Top-K limit used by {@link recallStrategyMemory} in the vault runtime. */
+/** Top-K limit used by {@link recallStrategyMemory} for the first recall page. */
 export const STRATEGY_RECALL_LIMIT = 32;
+
+/**
+ * Upper bound for expanded recall when the namespace holds more memories than
+ * {@link STRATEGY_RECALL_LIMIT}. The runtime re-fetches with
+ * `min(total, STRATEGY_RECALL_MAX)` so monotonic counters/facts are not dropped
+ * when semantic top-32 is stale in a shared owner namespace.
+ */
+export const STRATEGY_RECALL_MAX = 256;
 
 /**
  * Semantic recall query issued before every vault tick. Dashboard memory
@@ -139,6 +147,18 @@ export function buildStrategyRecallQuery(strategyId: string): string {
     return 'recent Synapse Vault rebalance decisions, counters, and outcomes';
   }
   return `recent ${id} Synapse Vault rebalance decisions, counters, and outcomes`;
+}
+
+/**
+ * Secondary recall query biased toward the newest persisted counters/facts.
+ * Used when the primary semantic page is truncated (`total > results.length`).
+ */
+export function buildStrategyStateRecallQuery(strategyId: string): string {
+  const id = strategyId.trim();
+  if (!id) {
+    return 'latest synapse.strategy.outcome counters facts executedAt';
+  }
+  return `latest ${id} synapse.strategy.outcome counters facts executedAt`;
 }
 
 /**

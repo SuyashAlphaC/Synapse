@@ -669,7 +669,7 @@ export class VaultRuntime {
       // Persist this tick's outcome + strategy memory updates so the next
       // tick can recover counters/facts. Best-effort: a MemWal outage must
       // not count as a tick failure (it would trip the kill-switch).
-      await this.#rememberSafe({ memwal, namespace, decision, receipt, memoryWrite });
+      await this.#rememberSafe({ memwal, namespace, strategyId: activeStrategy.id, decision, receipt, memoryWrite });
       return receipt;
     }
 
@@ -792,7 +792,7 @@ export class VaultRuntime {
     this.#savePreviousTick(postTradeHoldings, currentEpoch);
     // Best-effort: the trade is already final on-chain; a MemWal outage must not
     // be reclassified as a tick failure (which would trip the kill-switch).
-    await this.#rememberSafe({ memwal, namespace, decision, receipt, memoryWrite });
+    await this.#rememberSafe({ memwal, namespace, strategyId: activeStrategy.id, decision, receipt, memoryWrite });
     this.#logger.info(
       {
         txDigest: receipt.txDigest,

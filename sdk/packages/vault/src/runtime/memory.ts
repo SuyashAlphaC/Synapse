@@ -1,10 +1,13 @@
 import {
   buildStrategyRecallQuery,
+  buildStrategyStateRecallQuery,
   createMemWalClient,
   recall,
   rememberAndWait,
   STRATEGY_RECALL_LIMIT,
+  STRATEGY_RECALL_MAX,
   type MemWal,
+  type RecallResult,
 } from '@synapse-core/memwal-bridge';
 import type { AgentIdentity } from '@synapse-core/client';
 import type {
@@ -36,6 +39,16 @@ export function createRuntimeMemWalClient(args: {
   });
 }
 
+/** Per-strategy markers used to filter shared-namespace recall rows. */
+const STRATEGY_STATE_MARKERS: Readonly<
+  Record<string, { counters: readonly string[]; factPrefixes: readonly string[] }>
+> = {
+  'momentum-yield-maximizer': { counters: ['mymTicks'], factPrefixes: ['mym:'] },
+  'peer-coordinated-yield': { counters: ['pcyTicks'], factPrefixes: ['pcy:'] },
+  'dca-twap': { counters: ['dca_tick_index'], factPrefixes: [] },
+  'llm-advisor': { counters: ['llmTicks'], factPrefixes: [] },
+};
+
 /**
  * Reconstruct a strategy's `StrategyMemory` from MemWal.
  *
@@ -58,29 +71,18 @@ export async function recallStrategyMemory(args: {
   namespace: string;
   strategyId: string;
 }): Promise<StrategyMemory> {
-  const result = await recall({
-    client: args.client,
-    namespace: args.namespace,
-    query: buildStrategyRecallQuery(args.strategyId),
-    limit: STRATEGY_RECALL_LIMIT,
-  });
+  const result = await recallStrategyOutcomeRows(args);
 
-  const decisions: Array<{
-    entry: PastDecision;
-    epoch: bigint;
-    executedAtMs: number;
-    raw: ParsedOutcome;
-  }> = [];
+  const decisions: ParsedOutcomeRow[] = [];
   const freeformFacts: string[] = [];
 
   for (const memory of result.results) {
     const parsed = parseOutcome(memory.text);
     if (parsed) {
-      const executedAtMs = parsed.executedAtMs;
       decisions.push({
         entry: parsed.decision,
         epoch: parsed.decision.epoch,
-        executedAtMs,
+        executedAtMs: parsed.executedAtMs,
         raw: parsed,
       });
     } else {
@@ -94,18 +96,7 @@ export async function recallStrategyMemory(args: {
     return a.executedAtMs - b.executedAtMs;
   });
 
-  // Identify the "latest" entry for counter/fact recovery. MemWal's
-  // semantic recall returns entries by relevance, NOT chronological order,
-  // and the recall window (limit=32) may still miss the absolute newest
-  // entry. Sorting by (epoch, executedAtMs) is necessary but not
-  // sufficient — two entries with the same epoch+timestamp can have
-  // different counter values if the previous persist was slow.
-  //
-  // Robust tiebreaker: among entries sharing the max epoch, pick the one
-  // whose counter values are highest (monotonically increasing counters
-  // like dca_tick_index are the canonical state-advancement signal).
-  // This prevents a stale MemWal recall from stalling the counter.
-  const latest = pickLatestOutcome(decisions);
+  const latest = pickLatestStrategyOutcome(decisions, args.strategyId);
 
   const counters = latest?.raw.counters ?? {};
   const taggedFacts = latest?.raw.facts ?? [];
@@ -118,52 +109,169 @@ export async function recallStrategyMemory(args: {
   };
 }
 
+export interface ParsedOutcomeRow {
+  entry: PastDecision;
+  epoch: bigint;
+  executedAtMs: number;
+  raw: ParsedOutcome;
+}
+
+export function outcomeMatchesStrategy(raw: ParsedOutcome, strategyId: string): boolean {
+  if (raw.strategyId !== undefined) {
+    return raw.strategyId === strategyId;
+  }
+
+  const markers = STRATEGY_STATE_MARKERS[strategyId];
+  if (!markers) return true;
+
+  if (markers.counters.some((key) => typeof raw.counters[key] === 'number')) {
+    return true;
+  }
+  return markers.factPrefixes.some((prefix) => raw.facts.some((fact) => fact.startsWith(prefix)));
+}
+
 /**
- * Among all recalled outcomes, pick the one with the most advanced state.
- * Primary key: highest epoch. Tiebreaker: highest executedAtMs. Final
- * tiebreaker: highest sum of counter values (catches the case where
- * MemWal recall returns two entries from the same millisecond but only
- * one has the incremented counter).
+ * Among recalled outcomes for this strategy, pick the row with the most
+ * advanced persisted state (epoch → executedAt → strategy counters → px series).
  */
-function pickLatestOutcome(
-  decisions: Array<{
-    entry: PastDecision;
-    epoch: bigint;
-    executedAtMs: number;
-    raw: ParsedOutcome;
-  }>,
-): (typeof decisions)[number] | null {
-  if (decisions.length === 0) return null;
+export function pickLatestStrategyOutcome(
+  decisions: ParsedOutcomeRow[],
+  strategyId: string,
+): ParsedOutcomeRow | null {
+  const scoped = decisions.filter((d) => outcomeMatchesStrategy(d.raw, strategyId));
+  if (scoped.length === 0) return null;
 
-  let best = decisions[0];
-  for (let i = 1; i < decisions.length; i++) {
-    const candidate = decisions[i];
-    const epochCmp = Number(candidate.epoch - best.epoch);
-    if (epochCmp > 0) {
-      best = candidate;
-      continue;
-    }
-    if (epochCmp < 0) continue;
-
-    // Same epoch — prefer later timestamp
-    if (candidate.executedAtMs > best.executedAtMs) {
-      best = candidate;
-      continue;
-    }
-    if (candidate.executedAtMs < best.executedAtMs) continue;
-
-    // Same epoch AND timestamp — prefer higher counter sum
-    if (counterSum(candidate.raw.counters) > counterSum(best.raw.counters)) {
+  let best = scoped[0]!;
+  for (let i = 1; i < scoped.length; i++) {
+    const candidate = scoped[i]!;
+    if (compareStrategyOutcome(candidate, best, strategyId) > 0) {
       best = candidate;
     }
   }
   return best;
 }
 
+function compareStrategyOutcome(
+  candidate: ParsedOutcomeRow,
+  best: ParsedOutcomeRow,
+  strategyId: string,
+): number {
+  const epochCmp = Number(candidate.epoch - best.epoch);
+  if (epochCmp !== 0) return epochCmp;
+
+  if (candidate.executedAtMs !== best.executedAtMs) {
+    return candidate.executedAtMs > best.executedAtMs ? 1 : -1;
+  }
+
+  const counterCmp = strategyAdvancementScore(candidate.raw.counters, strategyId)
+    - strategyAdvancementScore(best.raw.counters, strategyId);
+  if (counterCmp !== 0) return counterCmp;
+
+  const factCmp =
+    seriesLengthFromFacts(candidate.raw.facts, strategyId)
+    - seriesLengthFromFacts(best.raw.facts, strategyId);
+  if (factCmp !== 0) return factCmp;
+
+  return counterSum(candidate.raw.counters) - counterSum(best.raw.counters);
+}
+
+function strategyAdvancementScore(
+  counters: Record<string, number>,
+  strategyId: string,
+): number {
+  const markers = STRATEGY_STATE_MARKERS[strategyId];
+  if (!markers || markers.counters.length === 0) {
+    return counterSum(counters);
+  }
+  let best = 0;
+  for (const key of markers.counters) {
+    const value = counters[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      best = Math.max(best, value);
+    }
+  }
+  return best;
+}
+
+function seriesLengthFromFacts(facts: string[], strategyId: string): number {
+  const pxPrefix =
+    strategyId === 'momentum-yield-maximizer'
+      ? 'mym:px:'
+      : strategyId === 'peer-coordinated-yield'
+        ? 'pcy:px:'
+        : null;
+  if (!pxPrefix) return 0;
+  const fact = facts.find((f) => f.startsWith(pxPrefix));
+  if (!fact) return 0;
+  return fact
+    .slice(pxPrefix.length)
+    .split(',')
+    .filter((part) => part.length > 0).length;
+}
+
 function counterSum(counters: Record<string, number>): number {
   let s = 0;
   for (const v of Object.values(counters)) s += v;
   return s;
+}
+
+async function recallStrategyOutcomeRows(args: {
+  client: MemWal;
+  namespace: string;
+  strategyId: string;
+}): Promise<{ results: NonNullable<RecallResult['results']>; total: number }> {
+  const primaryQuery = buildStrategyRecallQuery(args.strategyId);
+  const first = await recall({
+    client: args.client,
+    namespace: args.namespace,
+    query: primaryQuery,
+    limit: STRATEGY_RECALL_LIMIT,
+  });
+
+  let merged = [...(first.results ?? [])];
+  let total = first.total;
+
+  if (total > merged.length) {
+    const expandedLimit = Math.min(Math.max(total, STRATEGY_RECALL_LIMIT), STRATEGY_RECALL_MAX);
+    if (expandedLimit > STRATEGY_RECALL_LIMIT) {
+      const expanded = await recall({
+        client: args.client,
+        namespace: args.namespace,
+        query: primaryQuery,
+        limit: expandedLimit,
+      });
+      merged = mergeRecallRows(merged, expanded.results ?? []);
+      total = Math.max(total, expanded.total);
+    }
+  }
+
+  if (total > merged.length) {
+    const state = await recall({
+      client: args.client,
+      namespace: args.namespace,
+      query: buildStrategyStateRecallQuery(args.strategyId),
+      limit: STRATEGY_RECALL_MAX,
+    });
+    merged = mergeRecallRows(merged, state.results ?? []);
+    total = Math.max(total, state.total);
+  }
+
+  return { results: merged, total };
+}
+
+function mergeRecallRows(
+  primary: NonNullable<RecallResult['results']>,
+  extra: NonNullable<RecallResult['results']>,
+): NonNullable<RecallResult['results']> {
+  if (extra.length === 0) return primary;
+  const seen = new Set(primary.map((row) => row.text));
+  const out = [...primary];
+  for (const row of extra) {
+    if (seen.has(row.text)) continue;
+    seen.add(row.text);
+    out.push(row);
+  }
+  return out;
 }
 
 /**
@@ -179,6 +287,7 @@ function counterSum(counters: Record<string, number>): number {
 export async function rememberStrategyOutcome(args: {
   memwal: MemWal | null;
   namespace: string;
+  strategyId: string;
   decision: StrategyDecision;
   receipt: ExecutionReceipt;
   memoryWrite: MemoryWrite | null;
@@ -186,6 +295,7 @@ export async function rememberStrategyOutcome(args: {
   if (!args.memwal) return;
   const payload: PersistedOutcome = {
     type: 'synapse.strategy.outcome',
+    strategyId: args.strategyId,
     // Noop decisionIds must be unique across ticks in the same epoch
     // (testnet epochs span ~24h and easily hold dozens of noops).
     // Without uniqueness, MemWal stores many entries sharing the same
@@ -233,6 +343,7 @@ export function namespaceFromIdentity(identity: AgentIdentity): string {
 
 interface PersistedOutcome {
   type: 'synapse.strategy.outcome';
+  strategyId: string;
   decisionId: string;
   epoch: string;
   kind: 'rebalance' | 'noop';
@@ -244,10 +355,11 @@ interface PersistedOutcome {
   facts: string[];
 }
 
-interface ParsedOutcome {
+export interface ParsedOutcome {
   decision: PastDecision;
   counters: Record<string, number>;
   facts: string[];
+  strategyId?: string;
   /** Millisecond timestamp from the payload's `executedAt` ISO field — used as the within-epoch sort tiebreaker. */
   executedAtMs: number;
 }
@@ -269,12 +381,14 @@ function parseOutcome(text: string): ParsedOutcome | null {
     const facts = sanitizeStringArray(record.facts);
     const executedAtRaw = stringValue(record.executedAt);
     const executedAtMs = executedAtRaw ? Date.parse(executedAtRaw) || 0 : 0;
+    const strategyId = stringValue(record.strategyId) ?? undefined;
 
     return {
       decision: { decisionId, epoch: BigInt(epochText), kind, rationale },
       executedAtMs,
       counters,
       facts,
+      ...(strategyId !== undefined ? { strategyId } : {}),
     };
   } catch {
     return null;
