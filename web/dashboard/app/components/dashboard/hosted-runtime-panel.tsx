@@ -65,6 +65,7 @@ export function HostedRuntimePanel({
   const [tickMinutes, setTickMinutes] = useState(10);
   const [consent, setConsent] = useState(false);
   const [enabling, setEnabling] = useState(false);
+  const [updatingEnclave, setUpdatingEnclave] = useState(false);
   const [pausing, setPausing] = useState(false);
 
   const configQuery = useQuery({
@@ -126,6 +127,9 @@ export function HostedRuntimePanel({
     apiEnabled &&
     !isProvisioning &&
     (phase === 'not_provisioned' || phase === 'failed' || phase === 'not_configured');
+
+  const showUpdateEnclaveForm =
+    apiEnabled && !isProvisioning && (phase === 'live' || phase === 'paused');
 
   const onPickKeyFile = useCallback(
     async (file: File) => {
@@ -257,6 +261,51 @@ export function HostedRuntimePanel({
     vaultId,
   ]);
 
+  const onUpdateEnclaveConfig = useCallback(async () => {
+    const resolvedEnclaveUrl = enclaveUrl.trim();
+    const resolvedEnclaveObjectId = enclaveObjectId.trim();
+    if (!resolvedEnclaveUrl || !resolvedEnclaveObjectId) {
+      toast.push({
+        variant: 'warn',
+        title: 'Enclave URL and object ID required',
+        body: 'Both fields are needed to configure Nautilus on an existing stack.',
+      });
+      return;
+    }
+    setUpdatingEnclave(true);
+    try {
+      const res = await fetch('/api/hosted-runtime/update-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vaultId,
+          enclaveUrl: resolvedEnclaveUrl,
+          enclaveObjectId: resolvedEnclaveObjectId,
+          anthropicApiKey: anthropicKey.trim() || undefined,
+        }),
+      });
+      const body = (await res.json()) as { message?: string; error?: string };
+      if (!res.ok) throw new Error(body.error ?? res.statusText);
+      toast.push({
+        variant: 'success',
+        title: 'Nautilus config updating',
+        body: body.message ?? 'Stack update started — nautilus ✓ after UPDATE_COMPLETE.',
+        durationMs: 10_000,
+      });
+      setAnthropicKey('');
+      void queryClient.invalidateQueries({ queryKey: ['hosted-runtime-status', vaultId] });
+    } catch (err) {
+      toast.push({
+        variant: 'danger',
+        title: 'Update failed',
+        body: err instanceof Error ? err.message : String(err),
+        durationMs: 12_000,
+      });
+    } finally {
+      setUpdatingEnclave(false);
+    }
+  }, [anthropicKey, enclaveObjectId, enclaveUrl, queryClient, toast, vaultId]);
+
   const onTogglePause = useCallback(
     async (paused: boolean) => {
       setPausing(true);
@@ -382,6 +431,68 @@ export function HostedRuntimePanel({
         </div>
       )}
 
+      {showUpdateEnclaveForm && (
+        <div className="mb-4 grid gap-3 rounded-sm border border-divider bg-paper p-4">
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
+            Configure Nautilus
+            {status?.attestationConfigured ? ' · update enclave' : ' · not configured yet'}
+          </p>
+          <p className="text-[11px] leading-relaxed text-ink-soft">
+            Your stack is already provisioned — use this form to set or change enclave URL and
+            object ID (no need to re-upload the session .key). After{' '}
+            <code className="font-mono text-[10px]">UPDATE_COMPLETE</code>, refresh status until{' '}
+            <strong>nautilus ✓</strong>, then resume ticks.
+          </p>
+          <label className="grid gap-1">
+            <span className="font-mono text-[10px] text-ink-mute">Enclave URL</span>
+            <input
+              type="url"
+              value={enclaveUrl}
+              disabled={updatingEnclave}
+              onChange={(e) => setEnclaveUrl(e.target.value)}
+              placeholder="http://54.166.136.55:3000"
+              className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
+            />
+          </label>
+          <label className="grid gap-1">
+            <span className="font-mono text-[10px] text-ink-mute">Enclave object ID</span>
+            <input
+              type="text"
+              value={enclaveObjectId}
+              disabled={updatingEnclave}
+              onChange={(e) => setEnclaveObjectId(e.target.value)}
+              placeholder="0x2e170c44…"
+              className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
+            />
+          </label>
+          {needsAnthropicKey && (
+            <label className="grid gap-1">
+              <span className="font-mono text-[10px] text-ink-mute">
+                Anthropic API key (optional — only if changing)
+              </span>
+              <input
+                type="password"
+                autoComplete="off"
+                value={anthropicKey}
+                disabled={updatingEnclave}
+                onChange={(e) => setAnthropicKey(e.target.value)}
+                placeholder={status?.secretsReady.anthropic ? 'leave blank to keep existing' : 'sk-ant-…'}
+                className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
+              />
+            </label>
+          )}
+          <button
+            type="button"
+            className="btn-flat w-fit"
+            data-variant="accent"
+            disabled={updatingEnclave}
+            onClick={() => void onUpdateEnclaveConfig()}
+          >
+            {updatingEnclave ? 'Updating…' : 'Apply Nautilus config'}
+          </button>
+        </div>
+      )}
+
       {showEnableForm && apiEnabled && (
         <div className="grid gap-3">
           <label className="grid gap-1">
@@ -408,6 +519,10 @@ export function HostedRuntimePanel({
               <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
                 Anthropic API key
               </span>
+              <p className="text-[11px] leading-relaxed text-ink-soft">
+                Your vault&apos;s key — Claude usage bills to you, not Synapse. Stored in AWS
+                Secrets Manager per vault and forwarded to the enclave on each attested tick.
+              </p>
               <input
                 type="password"
                 autoComplete="off"

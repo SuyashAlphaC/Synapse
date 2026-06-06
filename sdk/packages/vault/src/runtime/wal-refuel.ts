@@ -17,11 +17,37 @@ export const DEFAULT_WAL_REFUEL_AMOUNT_MIST = 50_000_000n;
 /** Minimum SUI swap size (0.005 SUI). */
 export const MIN_WAL_REFUEL_SWAP_MIST = 5_000_000n;
 
+/** Hard floor — session must never drop below this or it cannot self-refuel. */
+export const MIN_SESSION_GAS_MIST = 10_000_000n;
+
+/** Observed gas for `pull_operational_funds` signed by the session (~4.1M on testnet). */
+export const PULL_OPERATIONAL_FUNDS_GAS_MIST = 5_000_000n;
+
+/** Conservative gas estimate for a lightweight noop / record_tick PTB. */
+export const NOOP_TICK_GAS_MIST = 6_000_000n;
+
 /** Leave this much SUI on the session after a WAL swap for gas (tick PTB + Walrus publish). */
 export const WAL_REFUEL_GAS_RESERVE_MIST = 20_000_000n;
 
 /** Minimum session SUI before attempting a Walrus upload PTB (~10M observed + margin). */
 export const WALRUS_UPLOAD_MIN_SUI_MIST = 20_000_000n;
+
+/** Session balance target before Walrus work: upload gas + post-upload noop + pull headroom. */
+export function sessionWalrusOperatingMinMist(): bigint {
+  return MIN_SESSION_GAS_MIST + WALRUS_UPLOAD_MIN_SUI_MIST;
+}
+
+/** Reserve to keep on session when swapping SUI→WAL ahead of a Walrus upload. */
+export function walSwapGasReserveMist(): bigint {
+  const walrusFloor = sessionWalrusOperatingMinMist();
+  return walrusFloor > WAL_REFUEL_GAS_RESERVE_MIST ? walrusFloor : WAL_REFUEL_GAS_RESERVE_MIST;
+}
+
+/** Minimum session SUI the runtime tries to maintain at tick start. */
+export function sessionOperatingMinMist(acceptsWalrusWork: boolean): bigint {
+  if (acceptsWalrusWork) return sessionWalrusOperatingMinMist();
+  return MIN_SESSION_GAS_MIST + PULL_OPERATIONAL_FUNDS_GAS_MIST;
+}
 
 /** Safety margin on top of per-upload estimate (0.002 WAL). */
 export const WAL_UPLOAD_SAFETY_FROST = 2_000_000n;
@@ -61,13 +87,25 @@ export function computeWalSwapAmountMist(args: {
   gasReserveMist?: bigint;
   minSwapMist?: bigint;
 }): bigint | null {
-  const gasReserve = args.gasReserveMist ?? WAL_REFUEL_GAS_RESERVE_MIST;
+  const gasReserve = args.gasReserveMist ?? walSwapGasReserveMist();
   const minSwap = args.minSwapMist ?? MIN_WAL_REFUEL_SWAP_MIST;
   const available = args.suiBalanceMist > gasReserve ? args.suiBalanceMist - gasReserve : 0n;
   if (available < minSwap) return null;
   const capped =
     available < args.configuredMaxMist ? available : args.configuredMaxMist;
-  return capped >= minSwap ? capped : null;
+  if (capped < minSwap) return null;
+  if (!swapPreservesSessionGasFloor(args.suiBalanceMist, capped, gasReserve)) return null;
+  return capped;
+}
+
+/** True when `swapMist` leaves the session at or above the hard gas floor. */
+export function swapPreservesSessionGasFloor(
+  suiBalanceMist: bigint,
+  swapMist: bigint,
+  gasReserveMist: bigint = walSwapGasReserveMist(),
+): boolean {
+  const reserve = gasReserveMist > MIN_SESSION_GAS_MIST ? gasReserveMist : MIN_SESSION_GAS_MIST;
+  return suiBalanceMist > swapMist && suiBalanceMist - swapMist >= reserve;
 }
 
 /** Session SUI needed before attempting a WAL swap of `swapMist`. */
@@ -92,4 +130,36 @@ export function isInsufficientSuiGasError(err: unknown): boolean {
     (lower.includes('balance of gas object') && lower.includes('lower than the needed amount')) ||
     lower.includes('insufficient gas')
   );
+}
+
+export type PullOperationalFundsFailureKind = 'session-gas' | 'budget-or-treasury' | 'unknown';
+
+/** Classify why `pull_operational_funds` failed — gas starvation vs budget/treasury. */
+export function classifyPullOperationalFundsFailure(err: unknown): PullOperationalFundsFailureKind {
+  if (isInsufficientSuiGasError(err)) return 'session-gas';
+  const message = err instanceof Error ? err.message : String(err);
+  const lower = message.toLowerCase();
+  if (
+    lower.includes('eopbudget') ||
+    lower.includes('operational budget') ||
+    lower.includes('budget exceeded') ||
+    (lower.includes('insufficient') && lower.includes('balance') && !lower.includes('gas object'))
+  ) {
+    return 'budget-or-treasury';
+  }
+  return 'unknown';
+}
+
+export function pullOperationalFundsFailureMessage(
+  kind: PullOperationalFundsFailureKind,
+  sessionAddr: string,
+): string {
+  switch (kind) {
+    case 'session-gas':
+      return `session gas too low to pay for pull_operational_funds — transfer SUI to ${sessionAddr} or raise the mint session gas seed`;
+    case 'budget-or-treasury':
+      return 'pull_operational_funds rejected — operational cap exhausted, cap unset, or treasury dry';
+    default:
+      return 'pull_operational_funds failed — see err for details';
+  }
 }

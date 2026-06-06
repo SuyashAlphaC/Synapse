@@ -48,14 +48,14 @@ export interface MintAgentParams {
    * One-time SUI buffer transferred to the session address as part of
    * the mint PTB. The session needs *some* gas to sign its first
    * pull_operational_funds call (chicken-and-egg) — this breaks the
-   * cycle. Default 0.02 SUI ≈ 4 tick signatures' worth of gas.
+   * cycle. Default 0.1 SUI covers Walrus tick-1 WAL refuel headroom.
    */
   sessionGasSeedMist: bigint;
   /**
    * Per-epoch cap on `pull_operational_funds<SUI>`. Set as part of mint
    * so the runtime can auto-refuel from tick 1. Zero disables auto-refuel
-   * (legacy behavior — owner refuels manually). Defaults to 0.05 SUI/epoch
-   * which covers ~10 ticks at testnet gas prices.
+   * (legacy behavior — owner refuels manually). Defaults to 0.2 SUI/epoch
+   * minimum which covers Walrus + noop gas at testnet prices.
    */
   operationalCapMist: bigint;
   /**

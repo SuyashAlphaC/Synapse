@@ -40,6 +40,12 @@ export interface RequestAttestedDecisionArgs {
   codeHashHex: string;
   network: 'testnet' | 'mainnet';
   input: StrategyInput;
+  /**
+   * Per-vault Anthropic key (model A). When the hired strategy calls Claude,
+   * the enclave uses this for the duration of `evaluate()` — LLM cost stays
+   * on the vault owner, not the enclave operator or Synapse.
+   */
+  anthropicApiKey?: string | null;
   /** Injectable for tests; defaults to global fetch. */
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
@@ -69,17 +75,21 @@ export async function requestAttestedDecision(
   const timer = setTimeout(() => controller.abort(), args.timeoutMs ?? 60_000);
   try {
     const inputJson = JSON.stringify(args.input, replaceBigints);
+    const payload: Record<string, unknown> = {
+      vaultId: args.vaultId,
+      epoch: Number(args.epoch),
+      codeHashHex: args.codeHashHex,
+      blobId: args.blobId,
+      network: args.network,
+      inputJson,
+    };
+    const anthropicApiKey = args.anthropicApiKey?.trim();
+    if (anthropicApiKey) payload.anthropicApiKey = anthropicApiKey;
+
     const res = await doFetch(`${stripSlash(args.enclaveUrl)}/decide`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        vaultId: args.vaultId,
-        epoch: Number(args.epoch),
-        codeHashHex: args.codeHashHex,
-        blobId: args.blobId,
-        network: args.network,
-        inputJson,
-      }),
+      body: JSON.stringify(payload),
       signal: controller.signal,
     });
     if (!res.ok) {

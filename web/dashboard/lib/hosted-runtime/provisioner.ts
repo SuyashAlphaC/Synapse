@@ -36,8 +36,13 @@ import {
   useCloudFormationProvisioner,
   vaultShortId,
 } from './config';
-import { describeSecretExists, upsertVaultSecrets } from './secrets';
-import type { EnableHostedRuntimeRequest, EnableHostedRuntimeResult, HostedRuntimeStatus } from './types';
+import { describeSecretExists, upsertAnthropicSecret, upsertVaultSecrets } from './secrets';
+import type {
+  EnableHostedRuntimeRequest,
+  EnableHostedRuntimeResult,
+  HostedRuntimeStatus,
+  UpdateHostedRuntimeConfigRequest,
+} from './types';
 import { assertVaultId, parseSessionKeyFileJson } from './parse-key';
 import { deployVaultRuntimeStack } from './cfn-deploy';
 
@@ -93,7 +98,11 @@ async function isAttestationConfiguredOnTask(vaultShortId: string): Promise<bool
   }
 }
 
-function resolveEnclaveConfig(body: EnableHostedRuntimeRequest): {
+function resolveEnclaveConfigFromFields(body: {
+  enclaveUrl?: string;
+  enclaveObjectId?: string;
+  requiresAttestation?: boolean;
+}): {
   enclaveUrl: string | null;
   enclaveObjectId: string | null;
 } {
@@ -116,6 +125,13 @@ function resolveEnclaveConfig(body: EnableHostedRuntimeRequest): {
   }
 
   return { enclaveUrl, enclaveObjectId };
+}
+
+function resolveEnclaveConfig(body: EnableHostedRuntimeRequest): {
+  enclaveUrl: string | null;
+  enclaveObjectId: string | null;
+} {
+  return resolveEnclaveConfigFromFields(body);
 }
 
 async function findTickScheduleRule(vaultId: string): Promise<{ name: string; enabled: boolean } | null> {
@@ -382,6 +398,71 @@ function provisioningMessage(imageUri: string | null): string {
   return imageUri
     ? 'Secrets stored. Deploying Fargate stack with shared runtime image (typically 2–4 min).'
     : 'Secrets stored. Deploying Fargate stack (Docker build — typically 5–10 min on first vault). Set SYNAPSE_HOSTED_RUNTIME_ECR_IMAGE for faster enables.';
+}
+
+export async function updateHostedRuntimeConfig(
+  body: UpdateHostedRuntimeConfigRequest,
+): Promise<EnableHostedRuntimeResult> {
+  if (!isHostedRuntimeApiEnabled()) {
+    throw new Error('Synapse hosted runtime API is disabled on this dashboard server');
+  }
+  assertVaultId(body.vaultId);
+
+  const status = await getHostedRuntimeStatus(body.vaultId);
+  if (status.phase === 'not_provisioned' || status.phase === 'not_configured') {
+    throw new Error('Hosted runtime is not provisioned — use Enable hosted runtime first');
+  }
+  if (status.phase === 'provisioning') {
+    throw new Error('Stack update already in progress — wait for provisioning to finish');
+  }
+
+  const { enclaveUrl, enclaveObjectId } = resolveEnclaveConfigFromFields({
+    enclaveUrl: body.enclaveUrl,
+    enclaveObjectId: body.enclaveObjectId,
+  });
+  if (!enclaveUrl || !enclaveObjectId) {
+    throw new Error('enclaveUrl and enclaveObjectId are required');
+  }
+
+  const anthropic = body.anthropicApiKey?.trim() ?? null;
+  if (anthropic && !anthropic.startsWith('sk-ant-')) {
+    throw new Error('anthropicApiKey must start with sk-ant-');
+  }
+  if (anthropic) {
+    await upsertAnthropicSecret(body.vaultId, anthropic);
+  }
+
+  const names = secretNamesForVault(body.vaultId);
+  const [memwalOk, anthropicOk] = await Promise.all([
+    describeSecretExists(names.memwal),
+    describeSecretExists(names.anthropic),
+  ]);
+  const imageUri = sharedRuntimeImageUri();
+  if (!imageUri) {
+    throw new Error('SYNAPSE_HOSTED_RUNTIME_ECR_IMAGE is required');
+  }
+
+  await deployVaultRuntimeStack({
+    vaultId: body.vaultId,
+    vaultShortId: vaultShortId(body.vaultId),
+    packageId: defaultPackageId(),
+    packageHistory: packageHistoryCsv(),
+    sessionSecretName: names.session,
+    memwalSecretName: memwalOk ? names.memwal : null,
+    anthropicSecretName: anthropic || anthropicOk ? names.anthropic : null,
+    tickIntervalMinutes: status.tickIntervalMinutes,
+    runtimeImageUri: imageUri,
+    enclaveUrl,
+    enclaveObjectId,
+  });
+
+  return {
+    vaultId: body.vaultId,
+    stackName: stackNameForVault(body.vaultId),
+    phase: 'provisioning',
+    message:
+      'Nautilus enclave config applied — CloudFormation stack update started (typically 2–4 min). Resume ticks when live.',
+  };
 }
 
 export async function setHostedRuntimePaused(vaultId: string, paused: boolean): Promise<void> {

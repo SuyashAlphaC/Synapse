@@ -11,7 +11,9 @@
 // Endpoints:
 //   GET  /health       -> liveness
 //   GET  /public-key   -> { public_key } compressed secp256k1 hex (for register)
-//   POST /decide       -> { decision, decision_hash, code_hash, inputs_hash, signature, timestamp_ms }
+//   POST /decide       -> { vaultId, epoch, codeHashHex, blobId, network, inputJson,
+//                         anthropicApiKey? }  per-vault LLM billing (model A)
+//                       <- { decision, decision_hash, code_hash, inputs_hash, signature, timestamp_ms }
 
 import express from 'express';
 import fs from 'fs';
@@ -56,7 +58,8 @@ app.get('/public-key', (_req, res) => {
 
 app.post('/decide', async (req, res) => {
   try {
-    const { vaultId, epoch, codeHashHex, blobId, network, inputJson } = req.body ?? {};
+    const { vaultId, epoch, codeHashHex, blobId, network, inputJson, anthropicApiKey } =
+      req.body ?? {};
     if (!vaultId || epoch === undefined || !codeHashHex || !blobId || typeof inputJson !== 'string') {
       return res.status(400).json({ error: 'vaultId, epoch, codeHashHex, blobId, inputJson required' });
     }
@@ -67,6 +70,9 @@ app.post('/decide', async (req, res) => {
       codeHashHex,
       network: network === 'mainnet' ? 'mainnet' : 'testnet',
       input,
+      ...(typeof anthropicApiKey === 'string' && anthropicApiKey.trim()
+        ? { anthropicApiKey: anthropicApiKey.trim() }
+        : {}),
     });
 
     const decisionStr = JSON.stringify(decision, replaceBigints);

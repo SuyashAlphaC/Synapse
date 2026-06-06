@@ -53,6 +53,56 @@ describe('requestAttestedDecision', () => {
     expect(res.timestampMs).toBe(1744038900000);
   });
 
+  it('forwards per-vault anthropicApiKey in the POST body (model A)', async () => {
+    let capturedBody: string | undefined;
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      capturedBody = init?.body as string;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          decision: JSON.stringify({ kind: 'noop', rationale: 'held' }),
+          decision_hash: 'de',
+          code_hash: 'aa'.repeat(32),
+          inputs_hash: 'ab',
+          timestamp_ms: 1744038900000,
+          signature: 'cd',
+        }),
+        text: async () => '',
+      };
+    }) as unknown as typeof fetch;
+
+    await requestAttestedDecision({
+      ...base,
+      anthropicApiKey: 'sk-ant-vault',
+      fetchImpl,
+    });
+    expect(JSON.parse(capturedBody!).anthropicApiKey).toBe('sk-ant-vault');
+  });
+
+  it('omits anthropicApiKey when unset', async () => {
+    let capturedBody: string | undefined;
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      capturedBody = init?.body as string;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          decision: JSON.stringify({ kind: 'noop', rationale: 'held' }),
+          decision_hash: 'de',
+          code_hash: 'aa'.repeat(32),
+          inputs_hash: 'ab',
+          timestamp_ms: 1744038900000,
+          signature: 'cd',
+        }),
+        text: async () => '',
+      };
+    }) as unknown as typeof fetch;
+
+    await requestAttestedDecision({ ...base, fetchImpl });
+    expect(JSON.parse(capturedBody!).anthropicApiKey).toBeUndefined();
+  });
+
   it('throws on a non-OK response (attested vault must skip, not fall back)', async () => {
     await expect(
       requestAttestedDecision({ ...base, fetchImpl: fakeFetch({ error: 'down' }, false, 503) }),

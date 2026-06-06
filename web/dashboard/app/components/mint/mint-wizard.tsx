@@ -274,12 +274,12 @@ export function MintWizard() {
 
     // Auto-derived autonomy params. The owner gets full hands-off operation
     // by default; can override if they want to disable auto-refuel.
-    //   sessionGasSeed: 0.02 SUI flat (enough for ~4 ticks of gas)
-    //   operationalCap: max(0.05 SUI, 5% of treasury) per epoch
-    const sessionGasSeedMist = 20_000_000n; // 0.02 SUI
-    const operationalCapMist = fundingMist / 20n > 50_000_000n
+    //   sessionGasSeed: 0.1 SUI flat (covers Walrus tick-1 WAL refuel + pull gas)
+    //   operationalCap: max(0.2 SUI, 5% of treasury) per epoch
+    const sessionGasSeedMist = 100_000_000n; // 0.1 SUI
+    const operationalCapMist = fundingMist / 20n > 200_000_000n
       ? fundingMist / 20n
-      : 50_000_000n; // ≥ 0.05 SUI/epoch
+      : 200_000_000n; // ≥ 0.2 SUI/epoch
 
     // CRITICAL — save the session key file *before* submitting the mint PTB.
     // If the tx fails or the user closes the tab mid-flow, they still have
@@ -1132,11 +1132,11 @@ function MintStep({
       <SummaryRow label="Funding" value={`${form.fundingSui.toFixed(3)} SUI`} />
       <SummaryRow
         label="Session gas seed"
-        value="0.02 SUI (one-time, bundled in this tx)"
+        value="0.1 SUI (one-time, bundled in this tx)"
       />
       <SummaryRow
         label="Operational cap"
-        value={`${(Math.max(0.05, form.fundingSui * 0.05)).toFixed(4)} SUI / epoch (auto-refuel)`}
+        value={`${(Math.max(0.2, form.fundingSui * 0.05)).toFixed(4)} SUI / epoch (auto-refuel)`}
       />
       <SummaryRow
         label="MemWal"

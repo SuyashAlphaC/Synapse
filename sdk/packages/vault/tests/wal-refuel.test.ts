@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  classifyPullOperationalFundsFailure,
   computeWalSwapAmountMist,
   estimateWalFrostForUpload,
   isInsufficientSuiGasError,
   isInsufficientWalBalanceError,
   MIN_WAL_REFUEL_SWAP_MIST,
+  sessionOperatingMinMist,
+  sessionWalrusOperatingMinMist,
   suiNeededBeforeWalSwap,
+  swapPreservesSessionGasFloor,
+  walSwapGasReserveMist,
   WAL_REFUEL_GAS_RESERVE_MIST,
   walTargetFrost,
 } from '../src/runtime/wal-refuel.js';
@@ -34,16 +39,52 @@ describe('computeWalSwapAmountMist', () => {
     });
     expect(swap).not.toBeNull();
     expect(swap!).toBeGreaterThanOrEqual(MIN_WAL_REFUEL_SWAP_MIST);
-    expect(swap!).toBeLessThanOrEqual(35_280_660n); // balance - 20M gas reserve
+    expect(swap!).toBeLessThanOrEqual(55_280_660n - walSwapGasReserveMist());
   });
 
-  it('returns null when session cannot afford min swap + reserve', () => {
+  it('returns null when session cannot afford min swap + walrus reserve', () => {
     expect(
       computeWalSwapAmountMist({
         suiBalanceMist: 15_000_000n,
         configuredMaxMist: 50_000_000n,
       }),
     ).toBeNull();
+  });
+
+  it('returns null when swap would breach the hard session gas floor', () => {
+    expect(
+      computeWalSwapAmountMist({
+        suiBalanceMist: 34_000_000n,
+        configuredMaxMist: 50_000_000n,
+        gasReserveMist: 30_000_000n,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe('sessionOperatingMinMist', () => {
+  it('requires more headroom for Walrus-enabled vaults', () => {
+    expect(sessionOperatingMinMist(true)).toBe(sessionWalrusOperatingMinMist());
+    expect(sessionOperatingMinMist(true)).toBeGreaterThan(sessionOperatingMinMist(false));
+  });
+});
+
+describe('swapPreservesSessionGasFloor', () => {
+  it('rejects swaps that would leave the session below the floor', () => {
+    expect(swapPreservesSessionGasFloor(35_000_000n, 10_000_000n, 30_000_000n)).toBe(false);
+    expect(swapPreservesSessionGasFloor(60_000_000n, 10_000_000n, 30_000_000n)).toBe(true);
+  });
+});
+
+describe('classifyPullOperationalFundsFailure', () => {
+  it('detects session gas starvation', () => {
+    expect(
+      classifyPullOperationalFundsFailure(
+        new Error(
+          'Error checking transaction input objects: Balance of gas object 2918852 is lower than the needed amount: 4074648',
+        ),
+      ),
+    ).toBe('session-gas');
   });
 });
 

@@ -43,8 +43,9 @@ async function fetchBundle(blobId, network) {
  * @param {string} a.codeHashHex   expected sha256 (the on-chain code_hash), 64-hex
  * @param {string} a.network       'testnet' | 'mainnet'
  * @param {object} a.input         the StrategyInput to evaluate over
+ * @param {string} [a.anthropicApiKey] per-vault key for LLM strategies (model A)
  */
-export async function runStrategy({ blobId, codeHashHex, network, input }) {
+export async function runStrategy({ blobId, codeHashHex, network, input, anthropicApiKey }) {
   const bytes = await fetchBundle(blobId, network);
   const actualHex = toHex(sha256(bytes));
   if (actualHex !== codeHashHex.toLowerCase()) {
@@ -62,6 +63,16 @@ export async function runStrategy({ blobId, codeHashHex, network, input }) {
     throw new Error('strategy bundle has no default export with evaluate()');
   }
 
-  const decision = await strategy.evaluate(input, undefined);
-  return { decision, codeHash: sha256(bytes) };
+  const priorAnthropicKey = process.env.ANTHROPIC_API_KEY;
+  const vaultKey = typeof anthropicApiKey === 'string' ? anthropicApiKey.trim() : '';
+  if (vaultKey) process.env.ANTHROPIC_API_KEY = vaultKey;
+  try {
+    const decision = await strategy.evaluate(input, undefined);
+    return { decision, codeHash: sha256(bytes) };
+  } finally {
+    if (vaultKey) {
+      if (priorAnthropicKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+      else process.env.ANTHROPIC_API_KEY = priorAnthropicKey;
+    }
+  }
 }

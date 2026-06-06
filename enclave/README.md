@@ -38,8 +38,14 @@ registration.
 npm install
 # 32-byte secp256k1 dev key
 head -c 32 /dev/urandom > signing-key
-ANTHROPIC_API_KEY=sk-ant-... node src/index.js ./signing-key
+node src/index.js ./signing-key
 ```
+
+**LLM strategies (model A):** the enclave server does **not** need a platform
+Anthropic key. Each vault owner supplies their own key when enabling hosted
+runtime; Fargate forwards it on every `POST /decide` as `anthropicApiKey` so
+Claude usage bills to the DAO, not Synapse. For local `/decide` testing you can
+pass `anthropicApiKey` in the JSON body or set `ANTHROPIC_API_KEY` in the shell.
 
 ## Deploy to Oyster + register on-chain
 

@@ -37,6 +37,16 @@ async function upsertPlaintextSecret(args: {
   }
 }
 
+export async function upsertAnthropicSecret(vaultId: string, apiKey: string): Promise<string> {
+  const names = secretNamesForVault(vaultId);
+  await upsertPlaintextSecret({
+    name: names.anthropic,
+    description: `Synapse Vault Anthropic API key for ${vaultId}`,
+    value: apiKey.trim(),
+  });
+  return names.anthropic;
+}
+
 export async function upsertVaultSecrets(args: {
   vaultId: string;
   secretBase64: string;

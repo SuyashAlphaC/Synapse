@@ -83,16 +83,22 @@ import { isLangGraphStrategy } from './langgraph-marker.js';
 import type { StrategyRuntimeContext } from '../types.js';
 import { uploadReportBlob, parseArtifactSlot, type SealUploadOptions } from './publisher.js';
 import {
+  classifyPullOperationalFundsFailure,
   computeWalSwapAmountMist,
   DEFAULT_WAL_REFUEL_AMOUNT_MIST,
   DEFAULT_WAL_REFUEL_THRESHOLD_FROST,
   estimateWalFrostForUpload,
   isInsufficientSuiGasError,
   isInsufficientWalBalanceError,
+  MIN_SESSION_GAS_MIST,
   MIN_WAL_REFUEL_SWAP_MIST,
   needsWalRefuel,
+  pullOperationalFundsFailureMessage,
+  sessionOperatingMinMist,
   suiNeededBeforeWalSwap,
+  swapPreservesSessionGasFloor,
   WAL_COIN_TYPE,
+  walSwapGasReserveMist,
   WALRUS_UPLOAD_MIN_SUI_MIST,
 } from './wal-refuel.js';
 import { deepbookSwap } from './deepbook.js';
@@ -327,14 +333,15 @@ export class VaultRuntime {
       return null;
     }
 
-    // Auto-refuel: check the session's SUI balance and, if below the
-    // configured threshold, fire a one-shot top-up PTB pulling from the
-    // vault's operational budget. Lands a fresh SUI coin on the session
-    // address that the NEXT tick PTB can use as gas. Failures here are
-    // non-fatal — if the cap isn't set or the treasury is dry, we just
-    // log and proceed; the current tick's own gas comes from whatever
-    // SUI the session already holds.
-    await this.#maybeRefuelSession(signer, currentEpoch);
+    // Auto-refuel before any Walrus / WAL work. Walrus-enabled vaults use a
+    // higher operating floor so tick 1 cannot drain the session below the
+    // gas needed for pull_operational_funds + on-chain noop.
+    const walrusWork = this.#vaultDoesWalrusWork(agent);
+    await this.#maybeRefuelSession(
+      signer,
+      currentEpoch,
+      sessionOperatingMinMist(walrusWork),
+    );
 
     // Auto-detect the vault's quote token from its bag holdings so the
     // strategy resolver targets the right USDC variant (Circle, bridge,
@@ -353,10 +360,9 @@ export class VaultRuntime {
       overrides.quoteSymbol = detectedQuote.symbol;
     }
     if (this.#config.poolIdOverride) overrides.poolId = this.#config.poolIdOverride;
-    // Per-vault Anthropic key (model A): resolve from the configured secrets
-    // provider into the process env so the Walrus-loaded llm-advisor bundle (and
-    // any LLM strategy) reads it via `process.env.ANTHROPIC_API_KEY`. The
-    // attested path keeps the key inside the enclave instead.
+    // Per-vault Anthropic key (model A): resolve from secrets so LLM cost stays
+    // on the vault owner. Unattested ticks set process.env for local strategy
+    // runs; attested ticks forward the key to POST /decide (see #attestedDecision).
     const anthropicKey = await this.#secrets.get('anthropic_api_key');
     if (anthropicKey) process.env.ANTHROPIC_API_KEY = anthropicKey;
 
@@ -667,12 +673,11 @@ export class VaultRuntime {
       return receipt;
     }
 
-    // Try to upload the rationale to Walrus. WAL balance is guaranteed
-    // immediately before upload (adaptive SUI→WAL refuel + treasury pull).
+    // Try to upload the rationale to Walrus when the session can afford it.
     const sealOpts = this.#sealOptions();
     let upload: Awaited<ReturnType<typeof uploadReportBlob>> | null = null;
     try {
-      upload = await this.#uploadReportEnsuringWal({
+      upload = await this.#maybeUploadReportForTick({
         report,
         signer,
         currentEpoch,
@@ -876,12 +881,46 @@ export class VaultRuntime {
       );
       return true;
     } catch (err) {
+      const kind = classifyPullOperationalFundsFailure(err);
       this.#logger.warn(
-        { err: err instanceof Error ? err.message : String(err), label },
-        `${label}: pull_operational_funds failed (cap unset, exhausted, or treasury dry?). Proceeding with existing session gas.`,
+        {
+          err: err instanceof Error ? err.message : String(err),
+          label,
+          failureKind: kind,
+        },
+        pullOperationalFundsFailureMessage(kind, sessionAddr),
       );
       return false;
     }
+  }
+
+  #vaultDoesWalrusWork(agent: Awaited<ReturnType<typeof loadAgentState>>): boolean {
+    return (
+      agent.acceptsWalrusExecution ||
+      Boolean(this.#config.walExchangeIds?.length)
+    );
+  }
+
+  async #maybeUploadReportForTick(args: {
+    report: AuditReport;
+    signer: Awaited<ReturnType<typeof loadSessionKeypair>>;
+    currentEpoch: bigint;
+    seal?: SealUploadOptions;
+  }): Promise<Awaited<ReturnType<typeof uploadReportBlob>> | null> {
+    const sessionAddr = args.signer.toSuiAddress();
+    const suiBalance = await this.#readSessionSuiBalance(sessionAddr);
+    if (suiBalance !== null && suiBalance < WALRUS_UPLOAD_MIN_SUI_MIST) {
+      this.#logger.info(
+        {
+          sessionAddr,
+          suiBalance: suiBalance.toString(),
+          minRequired: WALRUS_UPLOAD_MIN_SUI_MIST.toString(),
+        },
+        'skipping Walrus upload — session SUI below floor; recording lightweight on-chain tick',
+      );
+      return null;
+    }
+    return this.#uploadReportEnsuringWal(args);
   }
 
   async #readSessionSuiBalance(sessionAddr: string): Promise<bigint | null> {
@@ -935,6 +974,19 @@ export class VaultRuntime {
 
     const sessionAddr = signer.toSuiAddress();
     for (let attempt = 0; attempt < 3; attempt++) {
+      const suiNow = (await this.#readSessionSuiBalance(sessionAddr)) ?? 0n;
+      if (suiNow <= MIN_SESSION_GAS_MIST) {
+        this.#logger.warn(
+          {
+            sessionAddr,
+            suiBalance: suiNow.toString(),
+            minSessionGas: MIN_SESSION_GAS_MIST.toString(),
+          },
+          'auto-wal-refuel: session at hard gas floor; stopping WAL refuel',
+        );
+        break;
+      }
+
       const walBalance = (await this.#readSessionWalBalance(sessionAddr)) ?? 0n;
       if (!needsWalRefuel(walBalance, minWal)) return;
 
@@ -966,15 +1018,30 @@ export class VaultRuntime {
     if (!exchangeIds || exchangeIds.length === 0) return false;
 
     const sessionAddr = signer.toSuiAddress();
+    const gasReserve = walSwapGasReserveMist();
     let suiBalance = (await this.#readSessionSuiBalance(sessionAddr)) ?? 0n;
+    if (suiBalance <= MIN_SESSION_GAS_MIST) {
+      this.#logger.warn(
+        {
+          sessionAddr,
+          suiBalance: suiBalance.toString(),
+          minSessionGas: MIN_SESSION_GAS_MIST.toString(),
+        },
+        'auto-wal-refuel: session at hard gas floor; refusing WAL swap',
+      );
+      return false;
+    }
+
     let swapAmount = computeWalSwapAmountMist({
       suiBalanceMist: suiBalance,
       configuredMaxMist: args.maxSwapMist,
+      gasReserveMist: gasReserve,
     });
 
     if (swapAmount === null) {
       const needed = suiNeededBeforeWalSwap(
         args.maxSwapMist > MIN_WAL_REFUEL_SWAP_MIST ? args.maxSwapMist : MIN_WAL_REFUEL_SWAP_MIST,
+        gasReserve,
       );
       if (suiBalance < needed) {
         const pullAmount = this.#config.refuelAmountMist ?? DEFAULT_REFUEL_AMOUNT_MIST;
@@ -983,6 +1050,7 @@ export class VaultRuntime {
         swapAmount = computeWalSwapAmountMist({
           suiBalanceMist: suiBalance,
           configuredMaxMist: args.maxSwapMist,
+          gasReserveMist: gasReserve,
         });
       }
     }
@@ -996,6 +1064,19 @@ export class VaultRuntime {
           targetFrost: args.targetFrost.toString(),
         },
         'auto-wal-refuel: session SUI too low for swap even after treasury pull',
+      );
+      return false;
+    }
+
+    if (!swapPreservesSessionGasFloor(suiBalance, swapAmount, gasReserve)) {
+      this.#logger.warn(
+        {
+          sessionAddr,
+          suiBalance: suiBalance.toString(),
+          swapAmount: swapAmount.toString(),
+          gasReserve: gasReserve.toString(),
+        },
+        'auto-wal-refuel: swap would breach session gas floor; skipping',
       );
       return false;
     }
@@ -1132,11 +1213,11 @@ export class VaultRuntime {
     royaltyMist: bigint,
     attestation?: RebalanceAttestation,
   ): Promise<ExecutionReceipt> {
-    // Publish audit blob to Walrus — WAL is prefunded adaptively.
+    // Publish audit blob to Walrus when the session can afford it.
     const sealOpts = this.#sealOptions();
     let upload: Awaited<ReturnType<typeof uploadReportBlob>> | null = null;
     try {
-      upload = await this.#uploadReportEnsuringWal({
+      upload = await this.#maybeUploadReportForTick({
         report,
         signer,
         currentEpoch,
@@ -1276,6 +1357,7 @@ export class VaultRuntime {
       );
     }
 
+    const anthropicApiKey = await this.#secrets.get('anthropic_api_key');
     const dec = await requestAttestedDecision({
       enclaveUrl: this.#config.enclaveUrl!,
       vaultId: this.#config.agentId,
@@ -1284,6 +1366,7 @@ export class VaultRuntime {
       codeHashHex: meta.codeHashHex,
       network: this.#config.walrusNetwork,
       input,
+      anthropicApiKey,
     });
 
     const attestedSignal = { attested: true } as const;
@@ -1517,7 +1600,7 @@ function walrusFailureHint(errorMessage: string): string {
     return 'session WAL still insufficient after adaptive auto-refuel — check treasury operational budget / pull_operational_funds cap';
   }
   if (m.includes('balance of gas object') && m.includes('lower than the needed amount')) {
-    return 'session SUI too low for Walrus upload gas — auto-refuel should top up from treasury; check operational budget cap';
+    return 'session SUI too low for Walrus upload gas — transfer SUI to the session address or raise operational cap / session gas seed';
   }
   if (m.includes('too many failures') || m.includes('too many invalid confirmations')) {
     return 'transient testnet Walrus storage-node consensus failure — WAL may have been partially spent; next tick will retry';

@@ -43,6 +43,14 @@ export interface EnableHostedRuntimeRequest {
   consent: boolean;
 }
 
+export interface UpdateHostedRuntimeConfigRequest {
+  vaultId: string;
+  enclaveUrl: string;
+  enclaveObjectId: string;
+  /** When set, replaces the vault's Anthropic secret in Secrets Manager. */
+  anthropicApiKey?: string;
+}
+
 export interface EnableHostedRuntimeResult {
   vaultId: string;
   stackName: string;
