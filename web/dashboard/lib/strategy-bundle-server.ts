@@ -82,11 +82,7 @@ export function detectBundleMode(source: string): StrategyBundleMode {
 
 /** Resolve `@synapse-core/vault` for LangGraph dependency bundling. */
 export function langGraphWorkingDir(): string {
-  const candidates = [
-    join(process.cwd(), '../../sdk/packages/vault'),
-    join(process.cwd(), 'node_modules/@synapse-core/vault'),
-    join(process.cwd(), '../sdk/packages/vault'),
-  ];
+  const candidates = [join(process.cwd(), 'node_modules/@synapse-core/vault')];
   for (const dir of candidates) {
     const pkgPath = join(dir, 'package.json');
     if (!existsSync(pkgPath)) continue;

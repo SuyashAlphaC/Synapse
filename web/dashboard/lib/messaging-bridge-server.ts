@@ -2,41 +2,28 @@
  * Server-side spawn helper for the isolated messaging-runtime-bridge (sui 1.x).
  * Used by dashboard API routes for channel provisioning — never imported in
  * client components.
- *
- * On Vercel we spawn the esbuild bundle (`rpc.bundle.mjs`, self-contained).
- * Locally / in Docker we prefer the bundle when present, else fall back to
- * `dist/rpc.js` + package node_modules.
  */
+import 'server-only';
 
 import { spawn } from 'node:child_process';
 import { accessSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-const BRIDGE_REL = join('examples', 'messaging-runtime-bridge', 'dist');
-const SCRIPT_CANDIDATES = ['rpc.bundle.mjs', 'rpc.js'] as const;
+/** Repo root from `web/dashboard/lib` → `../../../` */
+const REPO_ROOT_FROM_LIB = join(__dirname, '../../..');
 
-function repoRootCandidates(): string[] {
-  const cwd = process.cwd();
-  return [
-    cwd,
-    join(cwd, '..'),
-    join(cwd, '..', '..'),
-    join(cwd, '..', '..', '..'),
-    process.env.LAMBDA_TASK_ROOT ?? '',
-    process.env.VERCEL ? '/var/task' : '',
-  ].filter(Boolean);
-}
+const SCRIPT_CANDIDATES = [
+  join(REPO_ROOT_FROM_LIB, 'examples/messaging-runtime-bridge/dist/rpc.bundle.mjs'),
+  join(REPO_ROOT_FROM_LIB, 'examples/messaging-runtime-bridge/dist/rpc.js'),
+] as const;
 
 export function resolveMessagingBridgeScriptPath(): string {
-  for (const root of repoRootCandidates()) {
-    for (const script of SCRIPT_CANDIDATES) {
-      const path = join(root, BRIDGE_REL, script);
-      try {
-        accessSync(path);
-        return path;
-      } catch {
-        // try next
-      }
+  for (const path of SCRIPT_CANDIDATES) {
+    try {
+      accessSync(path);
+      return path;
+    } catch {
+      // try next
     }
   }
   throw new Error(

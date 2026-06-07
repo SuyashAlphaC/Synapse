@@ -16,9 +16,10 @@
  */
 
 // Import from the package root (re-exports the runtime barrel) rather
-// than the `/runtime` subpath — Turbopack resolves the root `exports`
-// condition reliably but stumbles on the subpath for file: deps.
-import { VaultRuntime, type RuntimeConfig } from '@synapse-core/vault';
+// than the `/runtime` barrel. The barrel also exports the Node subprocess
+// messaging bootstrap, which imports `node:child_process` and cannot enter
+// the browser chunk.
+import { VaultRuntime, type RuntimeConfig } from '@synapse-core/vault/runtime-core';
 import {
   SYNAPSE_PACKAGE_ID,
   SYNAPSE_PACKAGE_HISTORY,

@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
-import { callMessagingBridge } from '@/lib/messaging-bridge-server';
 import { loadLiveVault } from '@/lib/vault-state';
 import { NETWORK, SUI_FULLNODE_URL } from '@/lib/synapse-config';
 
@@ -65,6 +64,7 @@ export async function POST(req: Request) {
     }
 
     const initialMembers = [...new Set(sessionAddresses)];
+    const { callMessagingBridge } = await import('@/lib/messaging-bridge-server');
     const result = (await callMessagingBridge(
       { op: 'createChannel', initialMembers },
       { ownerKey, fullnodeUrl, network: 'testnet' },
