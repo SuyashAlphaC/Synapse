@@ -35,9 +35,13 @@ const FILTER_GROUPS: Array<{ id: string; label: string; kinds: TimelineEntry['ki
   {
     id: 'memory',
     label: 'Memory & Artifacts',
-    kinds: ['artifact_published', 'cross_agent_read', 'action_log'],
+    kinds: ['artifact_published', 'action_log'],
   },
-  { id: 'messaging', label: 'Messaging', kinds: ['message_sent', 'message_received'] },
+  {
+    id: 'messaging',
+    label: 'Coordination',
+    kinds: ['cross_agent_read', 'message_sent', 'message_received'],
+  },
   {
     id: 'governance',
     label: 'Governance',
@@ -166,9 +170,11 @@ export function AuditTimeline({ sampleEntries, liveVaultId }: AuditTimelineProps
           <li className="rounded-sm border border-dashed border-ink-mute p-6 text-center font-mono text-xs text-ink-mute">
             {loading
               ? 'Loading on-chain events…'
-              : liveEntries
-                ? 'No events yet. Fund the vault or run a strategy tick.'
-                : 'No events match this filter.'}
+              : baseEntries.length > 0
+                ? 'No events match this filter.'
+                : liveEntries
+                  ? 'No events yet. Fund the vault or run a strategy tick.'
+                  : 'No events match this filter.'}
           </li>
         )}
         {visible.map((e, i) => (

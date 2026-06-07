@@ -186,6 +186,22 @@ export function buildSetRequiresAttestationPTB(args: {
 }
 
 /**
+ * Owner-only: attach Sui Stack Messaging inbox/outbox channel ids to this vault.
+ * For a shared broadcast channel, pass the same id for inbox and outbox.
+ */
+export function buildAttachMessagingPTB(args: {
+  agentId: string;
+  channelId: string;
+}): Transaction {
+  const tx = new Transaction();
+  tx.moveCall({
+    target: synapseTarget('agent', 'attach_messaging'),
+    arguments: [tx.object(args.agentId), tx.pure.id(args.channelId), tx.pure.id(args.channelId)],
+  });
+  return tx;
+}
+
+/**
  * Owner-only partial withdrawal from the vault treasury via
  * `wallet::withdraw<T>`. Returns the coin in the PTB and transfers it to
  * `to` (typically the owner / DAO multisig address).

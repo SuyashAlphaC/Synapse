@@ -19,6 +19,7 @@ export * from './config.js';
 export * from './session-key.js';
 export * from './zklogin.js';
 export * from './agent.js';
+export * from './messaging-bridge.js';
 export * from './strategy.js';
 export * from './wallet.js';
 export * from './artifacts.js';

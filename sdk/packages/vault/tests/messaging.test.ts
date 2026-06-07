@@ -27,6 +27,8 @@ describe('consumeSignals', () => {
     expect(res.facts).toHaveLength(1);
     expect(res.facts[0]).toContain('rotate 5% SUI->USDC');
     expect(res.facts[0]).toContain('0xpeerabc');
+    expect(res.messages).toHaveLength(1);
+    expect(res.messages[0].text).toBe('rotate 5% SUI->USDC');
     expect(res.newCursor).toBe(1n);
   });
 
@@ -38,6 +40,7 @@ describe('consumeSignals', () => {
       lastCursor: null,
     });
     expect(res.facts).toEqual([]);
+    expect(res.messages).toEqual([]);
     expect(res.newCursor).toBeNull();
   });
 
@@ -59,6 +62,7 @@ describe('consumeSignals', () => {
       lastCursor: 7n,
     });
     expect(res.facts).toEqual([]);
+    expect(res.messages).toEqual([]);
     expect(res.newCursor).toBe(7n);
   });
 });
@@ -129,7 +133,7 @@ describe('emitSignal', () => {
   });
 });
 
-import { messageDigest, recordSendPTB } from '../src/runtime/messaging.js';
+import { messageDigest, recordSendPTB, recordReceivePTB } from '../src/runtime/messaging.js';
 import { Transaction } from '@mysten/sui/transactions';
 
 describe('audit records', () => {
@@ -139,10 +143,25 @@ describe('audit records', () => {
     expect(d.every((b) => b >= 0 && b <= 255)).toBe(true);
   });
 
+  it('messageDigest matches raw text for send/receive correlation', async () => {
+    const text = 'signal @42: rebalance 5% SUI->USDC';
+    const fromSend = await messageDigest(text);
+    const fromReceive = await messageDigest(text);
+    expect(fromSend).toEqual(fromReceive);
+    expect(fromSend).not.toEqual(await messageDigest(`peer 0xabc: ${text}`));
+  });
+
   it('recordSendPTB adds a moveCall to the transaction', () => {
     const tx = new Transaction();
     const id = (n: string) => `0x${n.padStart(64, '0')}`;
     recordSendPTB(tx, id('a'), id('b'), id('c'), [1, 2, 3]);
+    expect(tx.getData().commands.length).toBeGreaterThan(0);
+  });
+
+  it('recordReceivePTB adds a moveCall to the transaction', () => {
+    const tx = new Transaction();
+    const id = (n: string) => `0x${n.padStart(64, '0')}`;
+    recordReceivePTB(tx, id('a'), id('b'), id('c'), [4, 5, 6]);
     expect(tx.getData().commands.length).toBeGreaterThan(0);
   });
 });

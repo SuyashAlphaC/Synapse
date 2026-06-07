@@ -282,6 +282,8 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
               vaultId={liveVault.agentId}
               memwalNamespace={live.identity.memwalNamespace}
               memwalEnabled={live.identity.memwalAccountId.length > 0}
+              messagingInbox={live.identity.messagingInbox}
+              messagingOutbox={live.identity.messagingOutbox}
             />
           )}
           {liveVault && (

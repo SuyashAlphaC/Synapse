@@ -8,7 +8,7 @@
     "prebuild": "npm run sync-vault",
     "build": "next build",
     "start": "next start",
-    "sync-vault": "npm run build --prefix ../../sdk/packages/client && npm run build --prefix ../../sdk/packages/memwal-bridge && npm run build --prefix ../../sdk/packages/vault && npm install --install-links --include=dev"
+    "sync-vault": "npm run build --prefix ../../sdk/packages/client && npm run build --prefix ../../sdk/packages/memwal-bridge && npm run build --prefix ../../sdk/packages/vault && npm run build --prefix ../../examples/messaging-runtime-bridge && npm install --install-links --include=dev"
   },
   "dependencies": {
     "@aws-sdk/client-cloudformation": "^3.758.0",

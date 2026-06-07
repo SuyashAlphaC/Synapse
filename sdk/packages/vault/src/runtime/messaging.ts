@@ -63,8 +63,15 @@ export interface ConsumeArgs {
   limit?: number;
 }
 
+export interface ConsumedMessage {
+  text: string;
+  sender: string;
+}
+
 export interface ConsumeResult {
   facts: string[];
+  /** Raw inbox payloads — use for on-chain digests (not the fact strings). */
+  messages: ConsumedMessage[];
   newCursor: bigint | null;
 }
 
@@ -74,7 +81,7 @@ export interface ConsumeResult {
  * lastCursor }` on any failure or when no channel is attached.
  */
 export async function consumeSignals(args: ConsumeArgs): Promise<ConsumeResult> {
-  if (!args.inboxChannelId) return { facts: [], newCursor: null };
+  if (!args.inboxChannelId) return { facts: [], messages: [], newCursor: null };
   try {
     const res = await args.client.messaging.getChannelMessages({
       channelId: args.inboxChannelId,
@@ -83,11 +90,12 @@ export async function consumeSignals(args: ConsumeArgs): Promise<ConsumeResult> 
       direction: 'forward',
       ...(args.limit ? { limit: args.limit } : {}),
     });
-    const facts = res.messages.map((m) => `peer ${m.sender.slice(0, 10)}: ${m.text}`);
-    return { facts, newCursor: res.cursor ?? args.lastCursor };
+    const messages = res.messages.map((m) => ({ text: m.text, sender: m.sender }));
+    const facts = messages.map((m) => `peer ${m.sender.slice(0, 10)}: ${m.text}`);
+    return { facts, messages, newCursor: res.cursor ?? args.lastCursor };
   } catch {
     // Degrade: no peer facts this tick. Keep the old cursor so nothing is skipped.
-    return { facts: [], newCursor: args.lastCursor };
+    return { facts: [], messages: [], newCursor: args.lastCursor };
   }
 }
 
@@ -148,30 +156,36 @@ export async function messageDigest(text: string): Promise<number[]> {
   return Array.from(bytes);
 }
 
-/** Append a `messaging_bridge::record_receive` call to `tx`. */
+/**
+ * Append `messaging_bridge::record_receive`. For a shared broadcast channel
+ * (inbox = outbox), pass the same channel id as `senderOutboxId`.
+ */
 export function recordReceivePTB(
   tx: Transaction,
   packageId: string,
   vaultId: string,
-  channelId: string,
+  senderOutboxId: string,
   digest: number[],
 ): void {
   tx.moveCall({
     target: target(packageId, 'messagingBridge', 'record_receive'),
-    arguments: [tx.object(vaultId), tx.pure.id(channelId), tx.pure.vector('u8', digest)],
+    arguments: [tx.object(vaultId), tx.pure.id(senderOutboxId), tx.pure.vector('u8', digest)],
   });
 }
 
-/** Append a `messaging_bridge::record_send` call to `tx`. */
+/**
+ * Append `messaging_bridge::record_send`. For a shared broadcast channel,
+ * pass the channel id as `recipientInboxId`.
+ */
 export function recordSendPTB(
   tx: Transaction,
   packageId: string,
   vaultId: string,
-  channelId: string,
+  recipientInboxId: string,
   digest: number[],
 ): void {
   tx.moveCall({
     target: target(packageId, 'messagingBridge', 'record_send'),
-    arguments: [tx.object(vaultId), tx.pure.id(channelId), tx.pure.vector('u8', digest)],
+    arguments: [tx.object(vaultId), tx.pure.id(recipientInboxId), tx.pure.vector('u8', digest)],
   });
 }

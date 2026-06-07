@@ -602,13 +602,15 @@ export class VaultRuntime {
         );
         try {
           const recvTx = new Transaction();
-          for (const fact of consumed.facts) {
+          // Shared channel: sender outbox id equals our inbox channel id.
+          const senderOutboxId = inboxId;
+          for (const msg of consumed.messages) {
             recordReceivePTB(
               recvTx,
               this.#config.packageId,
               this.#config.agentId,
-              inboxId,
-              await messageDigest(fact),
+              senderOutboxId,
+              await messageDigest(msg.text),
             );
           }
           await signAndExecuteWithRetry(this.#client, { transaction: recvTx, signer });

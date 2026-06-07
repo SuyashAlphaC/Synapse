@@ -67,7 +67,6 @@ export function HostedRuntimePanel({
   const [anthropicKey, setAnthropicKey] = useState('');
   const [enclaveUrl, setEnclaveUrl] = useState('');
   const [enclaveObjectId, setEnclaveObjectId] = useState('');
-  const [crossAgentPeerVaultIds, setCrossAgentPeerVaultIds] = useState('');
   const [tickMinutes, setTickMinutes] = useState(10);
   const [consent, setConsent] = useState(false);
   const [enabling, setEnabling] = useState(false);
@@ -233,7 +232,6 @@ export function HostedRuntimePanel({
           anthropicApiKey: anthropicKey.trim() || undefined,
           enclaveUrl: resolvedEnclaveUrl || undefined,
           enclaveObjectId: resolvedEnclaveObjectId || undefined,
-          crossAgentPeerVaultIds: crossAgentPeerVaultIds.trim() || undefined,
           requiresAttestation,
           tickIntervalMinutes: tickMinutes,
           consent: true,
@@ -265,7 +263,6 @@ export function HostedRuntimePanel({
     }
   }, [
     anthropicKey,
-    crossAgentPeerVaultIds,
     consent,
     enclaveObjectId,
     enclaveUrl,
@@ -572,27 +569,6 @@ export function HostedRuntimePanel({
               showClearButton={
                 !requiresAttestation && Boolean(enclaveUrl.trim() || enclaveObjectId.trim())
               }
-            />
-          </div>
-
-          <div className="grid gap-2 rounded-sm border border-divider bg-paper p-3">
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-mute">
-              MemWal cross-agent peers
-            </p>
-            <p className="text-[11px] leading-relaxed text-ink-soft">
-              Optional — peer vault object ids to recall on each tick (
-              <code className="font-mono text-[10px]">SYNAPSE_CROSS_AGENT_PEERS</code>). Vaults
-              minted under the same owner wallet share a MemWal namespace. Requires MemWal in your{' '}
-              <code className="font-mono text-[10px]">.key</code> file. Change peers later in the
-              Coordination panel.
-            </p>
-            <textarea
-              value={crossAgentPeerVaultIds}
-              disabled={enabling}
-              onChange={(e) => setCrossAgentPeerVaultIds(e.target.value)}
-              placeholder="0x…peer vault AgentIdentity id (one per line)"
-              rows={2}
-              className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
             />
           </div>
 

@@ -8,6 +8,7 @@
  *
  * Env (set by parent):
  *   SYNAPSE_SESSION_KEY  — session suiprivkey for channel member ops + send
+ *   SYNAPSE_OWNER_KEY    — owner suiprivkey for createChannel / addMembers
  *   SUI_FULLNODE_URL     — JSON-RPC URL (default testnet fullnode)
  *   SYNAPSE_MESSAGING_NETWORK — testnet | mainnet (default testnet)
  *
@@ -16,6 +17,8 @@
  *   { "op": "getUserMemberCap", "channelId", "userAddress" }
  *   { "op": "getChannelObjectsByChannelIds", "channelIds", "userAddress" }
  *   { "op": "executeSendMessageTransaction", "channelId", "memberCapId", "message", "encryptedKey" }
+ *   { "op": "createChannel", "initialMembers"?: string[] }
+ *   { "op": "addChannelMembers", "channelId", "members": string[] }
  *
  * Response: { "ok": true, "result": ... } | { "ok": false, "error": "..." }
  */
@@ -51,7 +54,9 @@ type RpcRequest =
       memberCapId: string;
       message: string;
       encryptedKey: { encryptedBytes: number[]; version: number };
-    };
+    }
+  | { op: 'createChannel'; initialMembers?: string[] }
+  | { op: 'addChannelMembers'; channelId: string; members: string[] };
 
 interface RpcOk {
   ok: true;
@@ -63,9 +68,9 @@ interface RpcErr {
   error: string;
 }
 
-function loadSessionKeypair(): Ed25519Keypair {
-  const raw = process.env.SYNAPSE_SESSION_KEY?.trim();
-  if (!raw) throw new Error('SYNAPSE_SESSION_KEY is required');
+function loadKeypairFromEnv(envName: 'SYNAPSE_SESSION_KEY' | 'SYNAPSE_OWNER_KEY'): Ed25519Keypair {
+  const raw = process.env[envName]?.trim();
+  if (!raw) throw new Error(`${envName} is required`);
 
   if (raw.startsWith('{')) {
     const parsed = JSON.parse(raw) as { suiPrivateKey?: string; secretBase64?: string };
@@ -76,28 +81,23 @@ function loadSessionKeypair(): Ed25519Keypair {
       const bytes = Buffer.from(b64, 'base64');
       if (bytes.length === 32) return Ed25519Keypair.fromSecretKey(new Uint8Array(bytes));
     }
-    throw new Error('session key JSON missing suiPrivateKey or secretBase64');
+    throw new Error(`${envName} JSON missing suiPrivateKey or secretBase64`);
   }
 
   if (raw.startsWith('suiprivkey')) return Ed25519Keypair.fromSecretKey(raw);
   const bytes = Buffer.from(raw, 'base64');
   if (bytes.length === 32) return Ed25519Keypair.fromSecretKey(new Uint8Array(bytes));
-  throw new Error('SYNAPSE_SESSION_KEY must be suiprivkey, base64 32-byte secret, or JSON .key file');
+  throw new Error(`${envName} must be suiprivkey, base64 32-byte secret, or JSON .key file`);
 }
 
-function buildClient(sessionAddress: string): ReturnType<typeof createMessagingClient> {
-  return createMessagingClient(sessionAddress);
-}
-
-function createMessagingClient(sessionAddress: string) {
+function createMessagingClient(sessionAddress: string, signer: Ed25519Keypair) {
   const network = process.env.SYNAPSE_MESSAGING_NETWORK === 'mainnet' ? 'mainnet' : 'testnet';
   if (network === 'mainnet') {
     throw new Error('mainnet messaging bridge not configured yet');
   }
   const url = process.env.SUI_FULLNODE_URL ?? getFullnodeUrl('testnet');
-  const signer = loadSessionKeypair();
 
-  const client = new SuiClient({
+  return new SuiClient({
     url,
     mvr: {
       overrides: {
@@ -120,14 +120,22 @@ function createMessagingClient(sessionAddress: string) {
         sealConfig: { threshold: 2 },
       }),
     );
+}
 
-  return client;
+function buildSessionClient(userAddress: string) {
+  const signer = loadKeypairFromEnv('SYNAPSE_SESSION_KEY');
+  return createMessagingClient(userAddress, signer);
+}
+
+function buildOwnerClient() {
+  const owner = loadKeypairFromEnv('SYNAPSE_OWNER_KEY');
+  return { client: createMessagingClient(owner.toSuiAddress(), owner), owner };
 }
 
 async function handle(req: RpcRequest): Promise<unknown> {
   switch (req.op) {
     case 'getChannelMessages': {
-      const client = buildClient(req.userAddress);
+      const client = buildSessionClient(req.userAddress);
       const cursor =
         req.cursor === null || req.cursor === undefined ? null : BigInt(req.cursor);
       const res = await client.messaging.getChannelMessages({
@@ -144,12 +152,12 @@ async function handle(req: RpcRequest): Promise<unknown> {
       };
     }
     case 'getUserMemberCap': {
-      const client = buildClient(req.userAddress);
+      const client = buildSessionClient(req.userAddress);
       const cap = await client.messaging.getUserMemberCap(req.userAddress, req.channelId);
       return cap;
     }
     case 'getChannelObjectsByChannelIds': {
-      const client = buildClient(req.userAddress);
+      const client = buildSessionClient(req.userAddress);
       const channels = await client.messaging.getChannelObjectsByChannelIds({
         channelIds: req.channelIds,
         userAddress: req.userAddress,
@@ -162,9 +170,10 @@ async function handle(req: RpcRequest): Promise<unknown> {
       }));
     }
     case 'executeSendMessageTransaction': {
-      const client = buildClient(loadSessionKeypair().toSuiAddress());
+      const signer = loadKeypairFromEnv('SYNAPSE_SESSION_KEY');
+      const client = buildSessionClient(signer.toSuiAddress());
       const res = await client.messaging.executeSendMessageTransaction({
-        signer: loadSessionKeypair(),
+        signer,
         channelId: req.channelId,
         memberCapId: req.memberCapId,
         message: req.message,
@@ -175,6 +184,40 @@ async function handle(req: RpcRequest): Promise<unknown> {
         },
       });
       return { digest: res.digest };
+    }
+    case 'createChannel': {
+      const { client, owner } = buildOwnerClient();
+      const members = [...new Set((req.initialMembers ?? []).filter(Boolean))];
+      const created = await client.messaging.executeCreateChannelTransaction({
+        signer: owner,
+        initialMembers: members,
+      });
+      return {
+        channelId: created.channelId,
+        digest: created.digest,
+        creatorCapId: created.creatorCapId,
+        initialMembers: members,
+      };
+    }
+    case 'addChannelMembers': {
+      const { client, owner } = buildOwnerClient();
+      const ownerAddr = owner.toSuiAddress();
+      const ownerCap = await client.messaging.getUserMemberCap(ownerAddr, req.channelId);
+      if (!ownerCap) throw new Error('owner MemberCap not found for channel');
+      const members = [...new Set(req.members.filter(Boolean))];
+      const res = await client.messaging.executeAddMembersTransaction({
+        signer: owner,
+        channelId: req.channelId,
+        memberCapId: ownerCap.id.id,
+        newMemberAddresses: members,
+      });
+      return {
+        digest: res.digest,
+        addedMembers: res.addedMembers.map((m) => ({
+          memberCapId: m.memberCap.id.id,
+          ownerAddress: m.ownerAddress,
+        })),
+      };
     }
     default:
       throw new Error(`unknown op ${(req as { op: string }).op}`);
