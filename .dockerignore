@@ -8,7 +8,11 @@ web/marketing
 infrastructure/aws/node_modules
 enclave
 move
-examples
+# Exclude example apps except the messaging subprocess bridge baked into the runtime image.
+examples/**
+!examples/messaging-runtime-bridge/
+!examples/messaging-runtime-bridge/**
+examples/messaging-runtime-bridge/node_modules
 docs
 **/.next
 **/.turbo
