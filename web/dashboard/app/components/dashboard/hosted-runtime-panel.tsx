@@ -410,11 +410,13 @@ export function HostedRuntimePanel({
             {' · '}
             cross-agent peers{' '}
             {status.crossAgentConfigured ? (
-              <span className="text-state-active">✓ ({status.crossAgentPeerVaultIds.length})</span>
-            ) : (
-              <span title="Only the reader vault needs peer ids (SYNAPSE_CROSS_AGENT_PEERS). Writers publish to the shared MemWal namespace without peer config.">
-                — (reader only)
+              <span className="text-state-active">✓ ({status.crossAgentPeerVaultIds.length} peers)</span>
+            ) : status.crossAgentPublishingConfigured ? (
+              <span className="text-state-active" title="Writer vault: MemWal delegate configured; peers read your published memories.">
+                ✓ (publishing)
               </span>
+            ) : (
+              <span>—</span>
             )}
           </p>
         </div>

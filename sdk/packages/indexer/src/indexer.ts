@@ -308,10 +308,20 @@ function projectTimelineEntry(
       };
     case 'cross_agent_read':
       if (e.payload.readerId !== vaultId && e.payload.writerId !== vaultId) return null;
+      if (e.payload.writerId === vaultId) {
+        return {
+          vaultId,
+          kind: 'cross_agent_write',
+          description: `Peer ${shortenAddr(e.payload.readerId)} read your MemWal memory`,
+          counterparty: e.payload.readerId,
+          ...meta,
+        };
+      }
       return {
         vaultId,
         kind: e.kind,
-        description: `Cross-agent read across namespace ${utf8(e.payload.namespace)}`,
+        description: `Cross-agent MemWal read from writer ${shortenAddr(e.payload.writerId)}`,
+        counterparty: e.payload.writerId,
         ...meta,
       };
     case 'message_sent':

@@ -26,6 +26,8 @@ export interface HostedRuntimeStatus {
   attestationConfigured: boolean;
   /** True when SYNAPSE_CROSS_AGENT_PEERS is set on the Fargate task definition. */
   crossAgentConfigured: boolean;
+  /** True when MemWal delegate secret is on the task (writer publishes to shared namespace). */
+  crossAgentPublishingConfigured: boolean;
   /** Peer vault ids configured on the hosted runtime task (empty when unset). */
   crossAgentPeerVaultIds: string[];
 }

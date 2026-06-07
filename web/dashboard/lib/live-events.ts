@@ -111,11 +111,15 @@ export async function loadLiveTimeline(opts: LoadEventsOptions): Promise<Timelin
             const parsed = ev.parsedJson as Record<string, unknown>;
             if (agentId && !matchesAgent(parsed, agentId, meta.kind)) continue;
             seen.add(id);
+            const entryKind =
+              meta.kind === 'cross_agent_read' && agentId
+                ? crossAgentKindForVault(parsed, agentId)
+                : meta.kind;
             const entry: TimelineEntry = {
               id,
               vaultId: agentId ?? '',
-              kind: meta.kind,
-              description: describe(meta.kind, parsed),
+              kind: entryKind,
+              description: describe(entryKind, parsed),
               timestamp: Number(ev.timestampMs ?? Date.now()),
               txDigest: ev.id.txDigest,
               accentColor: meta.accent,
@@ -194,7 +198,10 @@ async function fetchFromIndexer(
 
   return rows.slice(0, limit).map((row, index) => {
     const kind = row.kind as TimelineEntry['kind'];
-    const accent = KIND_BY_EVENT_TAIL.find((m) => m.kind === kind)?.accent ?? '#5BC0EB';
+    const accent =
+      kind === 'cross_agent_write' || kind === 'cross_agent_read'
+        ? '#FF8FA3'
+        : (KIND_BY_EVENT_TAIL.find((m) => m.kind === kind)?.accent ?? '#5BC0EB');
     const entry: TimelineEntry = {
       id: `${row.txDigest}-${index}`,
       vaultId: row.vaultId,
@@ -218,10 +225,14 @@ function matchesAgent(
   kind?: TimelineEntry['kind'],
 ): boolean {
   const lower = agentId.toLowerCase();
-  // Cross-agent reads are emitted on the reader's tick — only show on the reader vault.
+  // Cross-agent reads are attested on the reader's tick but involve both vaults.
   if (kind === 'cross_agent_read') {
     const readerId = parsed['reader_id'];
-    return typeof readerId === 'string' && readerId.toLowerCase() === lower;
+    const writerId = parsed['writer_id'];
+    return (
+      (typeof readerId === 'string' && readerId.toLowerCase() === lower) ||
+      (typeof writerId === 'string' && writerId.toLowerCase() === lower)
+    );
   }
   if (kind === 'message_sent') {
     const senderId = parsed['sender_agent_id'];
@@ -258,6 +269,8 @@ function describe(kind: TimelineEntry['kind'], p: Record<string, unknown>): stri
       return `Artifact ${p['label'] ?? p['artifact_slot'] ?? ''} published`;
     case 'cross_agent_read':
       return `Cross-agent MemWal read from writer ${shortenAddr(p['writer_id'])}`;
+    case 'cross_agent_write':
+      return `Peer ${shortenAddr(p['reader_id'])} read your MemWal memory`;
     case 'message_sent':
       return `Message sent → ${shortenAddr(p['recipient_inbox_id'])}`;
     case 'message_received':
@@ -267,6 +280,18 @@ function describe(kind: TimelineEntry['kind'], p: Record<string, unknown>): stri
     case 'action_log':
       return typeof p['description'] === 'string' ? (p['description'] as string) : 'Action log';
   }
+}
+
+function crossAgentKindForVault(
+  parsed: Record<string, unknown>,
+  viewingVaultId: string,
+): 'cross_agent_read' | 'cross_agent_write' {
+  const lower = viewingVaultId.toLowerCase();
+  const writerId = parsed['writer_id'];
+  if (typeof writerId === 'string' && writerId.toLowerCase() === lower) {
+    return 'cross_agent_write';
+  }
+  return 'cross_agent_read';
 }
 
 function shortenAddr(v: unknown): string {

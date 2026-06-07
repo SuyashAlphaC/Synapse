@@ -22,6 +22,7 @@ const KIND_META: Record<TimelineEntry['kind'], { label: string; symbol: string }
   spend: { label: 'SPEND', symbol: '$' },
   artifact_published: { label: 'ARTIFACT', symbol: '◐' },
   cross_agent_read: { label: 'READ', symbol: '⤳' },
+  cross_agent_write: { label: 'WRITE', symbol: '⤴' },
   message_sent: { label: 'MSG→', symbol: '→' },
   message_received: { label: '←MSG', symbol: '←' },
   swap: { label: 'SWAP', symbol: '⇄' },
@@ -40,7 +41,7 @@ const FILTER_GROUPS: Array<{ id: string; label: string; kinds: TimelineEntry['ki
   {
     id: 'messaging',
     label: 'Coordination',
-    kinds: ['cross_agent_read', 'message_sent', 'message_received'],
+    kinds: ['cross_agent_read', 'cross_agent_write', 'message_sent', 'message_received'],
   },
   {
     id: 'governance',

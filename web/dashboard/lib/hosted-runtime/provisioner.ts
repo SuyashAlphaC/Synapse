@@ -223,6 +223,7 @@ export async function getHostedRuntimeStatus(vaultId: string): Promise<HostedRun
       secretsReady: { session: false, memwal: false, anthropic: false },
       attestationConfigured: false,
       crossAgentConfigured: false,
+      crossAgentPublishingConfigured: false,
       crossAgentPeerVaultIds: [],
     };
   }
@@ -282,6 +283,8 @@ export async function getHostedRuntimeStatus(vaultId: string): Promise<HostedRun
     },
     attestationConfigured,
     crossAgentConfigured: crossAgentPeerVaultIds.length > 0,
+    crossAgentPublishingConfigured:
+      (phase === 'live' || phase === 'paused' || phase === 'provisioning') && memwalOk,
     crossAgentPeerVaultIds,
   };
 }

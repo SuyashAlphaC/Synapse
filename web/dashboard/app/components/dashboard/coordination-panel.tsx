@@ -107,7 +107,9 @@ export function CoordinationPanel({
     queryFn: async () => {
       const rows = await loadLiveTimeline({ client: suiClient, agentId: vaultId, limit: 100 });
       return rows.filter((r) =>
-        ['cross_agent_read', 'message_sent', 'message_received'].includes(r.kind),
+        ['cross_agent_read', 'cross_agent_write', 'message_sent', 'message_received'].includes(
+          r.kind,
+        ),
       );
     },
   });
@@ -260,9 +262,12 @@ export function CoordinationPanel({
 
   const coordinationEvents = coordinationEventsQuery.data ?? [];
   const crossAgentReads = coordinationEvents.filter((r) => r.kind === 'cross_agent_read');
+  const crossAgentWrites = coordinationEvents.filter((r) => r.kind === 'cross_agent_write');
   const messageSent = coordinationEvents.filter((r) => r.kind === 'message_sent');
   const messageReceived = coordinationEvents.filter((r) => r.kind === 'message_received');
   const recentRead = crossAgentReads[0] ?? null;
+  const recentWrite = crossAgentWrites[0] ?? null;
+  const recentCrossAgent = recentRead ?? recentWrite;
   const recentMsg = messageReceived[0] ?? messageSent[0] ?? null;
 
   return (
@@ -318,21 +323,23 @@ export function CoordinationPanel({
         </p>
         {configQuery.data?.apiEnabled && status ? (
           <p>
-            <span className="text-ink-mute">Hosted runtime peers · </span>
+            <span className="text-ink-mute">Hosted runtime cross-agent · </span>
             {status.crossAgentConfigured ? (
-              <span className="text-state-active">{configuredPeers.length} configured ✓</span>
+              <span className="text-state-active">{configuredPeers.length} peer(s) configured ✓</span>
+            ) : status.crossAgentPublishingConfigured ? (
+              <span className="text-state-active">MemWal publishing ✓ (writer)</span>
             ) : (
-              <span>none — add peer vault ids below</span>
+              <span>not configured — add peer ids on the reader vault below</span>
             )}
           </p>
         ) : null}
         <p>
-          <span className="text-ink-mute">Cross-agent reads (recent) · </span>
+          <span className="text-ink-mute">Cross-agent MemWal (recent) · </span>
           {coordinationEventsQuery.isLoading ? (
             <span>loading…</span>
-          ) : crossAgentReads.length > 0 ? (
+          ) : crossAgentReads.length + crossAgentWrites.length > 0 ? (
             <span className="text-state-active">
-              {crossAgentReads.length} in last 100 audit events ✓
+              {crossAgentReads.length} read · {crossAgentWrites.length} write ✓
             </span>
           ) : (
             <span>none yet</span>
@@ -350,17 +357,18 @@ export function CoordinationPanel({
             <span>none yet — attach channel + peer rebalance</span>
           )}
         </p>
-        {recentRead?.txDigest ? (
+        {recentCrossAgent?.txDigest ? (
           <p className="text-[10px]">
-            Latest MemWal read tx{' '}
+            Latest cross-agent tx{' '}
             <a
-              href={explorerTxUrl(recentRead.txDigest)}
+              href={explorerTxUrl(recentCrossAgent.txDigest)}
               target="_blank"
               rel="noopener noreferrer"
               className="text-accent-orange underline-offset-2 hover:underline"
             >
-              {recentRead.txDigest.slice(0, 10)}…
+              {recentCrossAgent.txDigest.slice(0, 10)}…
             </a>
+            {recentWrite ? ' · peer read your memory' : recentRead ? ' · you read peer memory' : null}
           </p>
         ) : null}
         {recentMsg?.txDigest ? (
@@ -513,8 +521,9 @@ export function CoordinationPanel({
           <p className="text-[11px] leading-relaxed text-ink-soft">
             Peer vault object ids for hosted runtime MemWal recall (
             <code className="font-mono text-[10px]">SYNAPSE_CROSS_AGENT_PEERS</code>). Set on
-            the <strong className="font-normal text-ink">reader</strong> vault only — it recalls
-            outcomes the writer published to the shared namespace. One id per line.
+            the <strong className="font-normal text-ink">reader</strong> vault — it recalls outcomes
+            the writer published to the shared namespace. Writer vaults show ✓ (publishing) when MemWal
+            is configured on the hosted runtime. One id per line.
           </p>
           <textarea
             value={peerInput}

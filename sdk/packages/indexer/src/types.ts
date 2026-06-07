@@ -70,10 +70,13 @@ export interface IndexerOptions {
 // Vault-centric views (derived from raw events)
 // ---------------------------------------------------------------------------
 
+/** Kinds surfaced on per-vault audit timelines (may differ from raw IndexedEvent kinds). */
+export type VaultTimelineKind = EventKind | 'cross_agent_write';
+
 /** A single point on the vault audit timeline. */
 export interface VaultTimelineEntry {
   vaultId: string;
-  kind: EventKind;
+  kind: VaultTimelineKind;
   txDigest: string;
   timestampMs: bigint;
   description: string;
