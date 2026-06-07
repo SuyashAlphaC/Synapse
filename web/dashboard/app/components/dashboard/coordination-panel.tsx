@@ -512,8 +512,9 @@ export function CoordinationPanel({
           </p>
           <p className="text-[11px] leading-relaxed text-ink-soft">
             Peer vault object ids for hosted runtime MemWal recall (
-            <code className="font-mono text-[10px]">SYNAPSE_CROSS_AGENT_PEERS</code>). One id per
-            line. Vaults under the same owner wallet share a MemWal namespace automatically.
+            <code className="font-mono text-[10px]">SYNAPSE_CROSS_AGENT_PEERS</code>). Set on
+            the <strong className="font-normal text-ink">reader</strong> vault only — it recalls
+            outcomes the writer published to the shared namespace. One id per line.
           </p>
           <textarea
             value={peerInput}

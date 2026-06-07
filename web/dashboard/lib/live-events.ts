@@ -109,7 +109,7 @@ export async function loadLiveTimeline(opts: LoadEventsOptions): Promise<Timelin
             const meta = classifyType(ev.type);
             if (!meta) continue;
             const parsed = ev.parsedJson as Record<string, unknown>;
-            if (agentId && !matchesAgent(parsed, agentId)) continue;
+            if (agentId && !matchesAgent(parsed, agentId, meta.kind)) continue;
             seen.add(id);
             const entry: TimelineEntry = {
               id,
@@ -212,8 +212,25 @@ async function fetchFromIndexer(
   });
 }
 
-function matchesAgent(parsed: Record<string, unknown>, agentId: string): boolean {
+function matchesAgent(
+  parsed: Record<string, unknown>,
+  agentId: string,
+  kind?: TimelineEntry['kind'],
+): boolean {
   const lower = agentId.toLowerCase();
+  // Cross-agent reads are emitted on the reader's tick — only show on the reader vault.
+  if (kind === 'cross_agent_read') {
+    const readerId = parsed['reader_id'];
+    return typeof readerId === 'string' && readerId.toLowerCase() === lower;
+  }
+  if (kind === 'message_sent') {
+    const senderId = parsed['sender_agent_id'];
+    return typeof senderId === 'string' && senderId.toLowerCase() === lower;
+  }
+  if (kind === 'message_received') {
+    const receiverId = parsed['receiver_agent_id'];
+    return typeof receiverId === 'string' && receiverId.toLowerCase() === lower;
+  }
   for (const key of [
     'agent_id',
     'reader_id',
@@ -240,7 +257,7 @@ function describe(kind: TimelineEntry['kind'], p: Record<string, unknown>): stri
     case 'artifact_published':
       return `Artifact ${p['label'] ?? p['artifact_slot'] ?? ''} published`;
     case 'cross_agent_read':
-      return `Cross-agent MemWal read ← writer ${shortenAddr(p['writer_id'])}`;
+      return `Cross-agent MemWal read from writer ${shortenAddr(p['writer_id'])}`;
     case 'message_sent':
       return `Message sent → ${shortenAddr(p['recipient_inbox_id'])}`;
     case 'message_received':

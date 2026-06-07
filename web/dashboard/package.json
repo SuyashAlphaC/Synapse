@@ -5,7 +5,7 @@
   "scripts": {
     "sync-vault": "npm run build --prefix ../../sdk/packages/client && npm run build --prefix ../../sdk/packages/memwal-bridge && npm run build --prefix ../../sdk/packages/vault && npm install --install-links --include=dev",
     "sync-vault:bridge": "npm install --prefix ../../examples/messaging-runtime-bridge && npm run build:deploy --prefix ../../examples/messaging-runtime-bridge",
-    "predev": "npm run sync-vault && npm run sync-vault:bridge",
+    "dev:setup": "npm run sync-vault && npm run sync-vault:bridge",
     "dev": "next dev",
     "prebuild": "npm run sync-vault",
     "build": "next build",

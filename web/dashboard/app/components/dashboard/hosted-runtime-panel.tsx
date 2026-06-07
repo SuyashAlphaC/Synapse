@@ -408,7 +408,14 @@ export function HostedRuntimePanel({
             {' · '}
             nautilus {status.attestationConfigured ? '✓' : '—'}
             {' · '}
-            cross-agent {status.crossAgentConfigured ? '✓' : '—'}
+            cross-agent peers{' '}
+            {status.crossAgentConfigured ? (
+              <span className="text-state-active">✓ ({status.crossAgentPeerVaultIds.length})</span>
+            ) : (
+              <span title="Only the reader vault needs peer ids (SYNAPSE_CROSS_AGENT_PEERS). Writers publish to the shared MemWal namespace without peer config.">
+                — (reader only)
+              </span>
+            )}
           </p>
         </div>
       )}
