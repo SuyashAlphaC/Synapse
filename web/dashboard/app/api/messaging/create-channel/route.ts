@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
 import { callMessagingBridge } from '@/lib/messaging-bridge-server';
 import { loadLiveVault } from '@/lib/vault-state';
-import { SUI_FULLNODE_URL } from '@/lib/synapse-config';
+import { NETWORK, SUI_FULLNODE_URL } from '@/lib/synapse-config';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
 
     const ownerKey = normalizeOwnerKey(body.ownerKey);
     const fullnodeUrl = process.env.SUI_FULLNODE_URL ?? SUI_FULLNODE_URL;
-    const client = new SuiJsonRpcClient({ url: fullnodeUrl });
+    const client = new SuiJsonRpcClient({ network: NETWORK, url: fullnodeUrl });
 
     const sessionAddresses: string[] = [];
     for (const vaultId of vaultIds) {

@@ -6,6 +6,8 @@
   "description": "Isolated @mysten/messaging (sui 1.x) subprocess RPC for the Synapse vault runtime (sui 2.x)",
   "scripts": {
     "build": "tsc",
+    "build:bundle": "esbuild src/rpc.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/rpc.bundle.mjs",
+    "build:deploy": "npm run build && npm run build:bundle",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -15,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "^0.24.2",
     "typescript": "^5.7.0"
   }
 }

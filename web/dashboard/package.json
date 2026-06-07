@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "npm run sync-vault",
+    "sync-vault": "npm run build --prefix ../../sdk/packages/client && npm run build --prefix ../../sdk/packages/memwal-bridge && npm run build --prefix ../../sdk/packages/vault && npm install --install-links --include=dev",
+    "sync-vault:bridge": "npm install --prefix ../../examples/messaging-runtime-bridge && npm run build:deploy --prefix ../../examples/messaging-runtime-bridge",
+    "predev": "npm run sync-vault && npm run sync-vault:bridge",
     "dev": "next dev",
     "prebuild": "npm run sync-vault",
     "build": "next build",
-    "start": "next start",
-    "sync-vault": "npm run build --prefix ../../sdk/packages/client && npm run build --prefix ../../sdk/packages/memwal-bridge && npm run build --prefix ../../sdk/packages/vault && npm run build --prefix ../../examples/messaging-runtime-bridge && npm install --install-links --include=dev"
+    "start": "next start"
   },
   "dependencies": {
     "@aws-sdk/client-cloudformation": "^3.758.0",

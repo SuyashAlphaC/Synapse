@@ -25,7 +25,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "move:build": "cd move/synapse_core && sui move build",
     "move:test": "cd move/synapse_core && sui move test",
-    "vercel-build": "npm run build -w @synapse-core/client -w @synapse-core/memwal-bridge -w @synapse-core/vault && npm install --prefix web/dashboard --install-links --no-save --include=dev && npm run build --prefix web/dashboard",
+    "vercel-build": "npm run build -w @synapse-core/client -w @synapse-core/memwal-bridge -w @synapse-core/vault && npm install --prefix examples/messaging-runtime-bridge && npm run build:deploy --prefix examples/messaging-runtime-bridge && npm install --prefix web/dashboard --install-links --no-save --include=dev && npm run build --prefix web/dashboard",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\""
   },
