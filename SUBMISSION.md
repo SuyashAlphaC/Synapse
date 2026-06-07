@@ -6,7 +6,7 @@
 |---|---|
 | **Team** | Synapse Labs |
 | **Repo** | [github.com/SuyashAlphaC/Synapse](https://github.com/SuyashAlphaC/Synapse) |
-| **Live demo** | [app.synapsevault.xyz](https://app.synapsevault.xyz) |
+| **Live demo** | [synapse-kappa-sable.vercel.app](https://synapse-kappa-sable.vercel.app/) |
 | **Walrus Site** | `0x55c33a39757a4487ca8cebdaffd5b7b9f9ba9601456a82ef5f031c689ae0001a` |
 | **Move package (v6)** | `0xe95241a800a97841e7676437cc83c9761e6d30e42ab8bdd590d49fd40e22a797` |
 
@@ -84,7 +84,7 @@ Implementation: `sdk/packages/vault/src/runtime/runtime.ts`
 
 ## 60-second judge walkthrough
 
-1. Open **[app.synapsevault.xyz](https://app.synapsevault.xyz)** → marketplace or an existing vault.
+1. Open **[synapse-kappa-sable.vercel.app](https://synapse-kappa-sable.vercel.app/)** → marketplace or an existing vault.
 2. **Audit timeline** — on-chain ticks (swap, noop, artifact publish, coordination).
 3. **MemWal recall panel** — semantic query → decrypted hits → Walrus blob links.
 4. **Artifacts panel** — fetch Walrus markdown; SHA-256 verified against chain.

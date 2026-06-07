@@ -118,7 +118,7 @@ Mapped to the official problem statement. **LIVE** = exercised on testnet with c
 | **Walrus blobs** | **LIVE** | Per-tick audit artifacts; content-addressed; hash anchored on-chain. |
 | **Seal** | **LIVE** | Encrypt strategy params and sensitive artifacts; `synapse_seal::seal_approve` policy package on testnet (`0x14a1cbc6…bc91a`); dashboard decrypt path verified. |
 | **Walrus Sites** | **LIVE** | Marketing site served from Walrus — Site `0x55c33a39…001a` (`web/site/`). |
-| **Sui Stack Messaging** | **INTEGRATED** | `@mysten/messaging` via isolated subprocess bridge (sui 1.x pin); Walrus-stored Seal-encrypted payloads; `record_send` / `record_receive` in tick loop. End-to-end proof in `examples/messaging-demo`. Production vaults: shared channel + session **MemberCap** required (`scripts/provision-messaging-channel.ts`). |
+| **Sui Stack Messaging** | **LIVE** | `@mysten/messaging` via isolated subprocess bridge (sui 1.x pin); Walrus-stored Seal-encrypted payloads; `record_send` / `record_receive` in tick loop. End-to-end proof in `examples/messaging-demo`. Production vaults: shared channel + session **MemberCap** required (`scripts/provision-messaging-channel.ts`). |
 | **LangGraph** | **LIVE** | Durable store adapter; strategies publish to Walrus and load hash-verified at runtime. |
 | **Nautilus / TEE attestation** | **LIVE (dev enclave)** | `decision_attestation.move` verifies enclave signature **before** swap; opt-in `requires_attestation` gate on `wallet::spend`. Proof tx `7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe` (`DecisionAttested`). Production TEE path documented in `enclave/README.md`. |
 
