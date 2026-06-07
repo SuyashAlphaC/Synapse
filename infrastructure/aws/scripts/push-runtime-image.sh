@@ -58,10 +58,12 @@ aws ecr get-login-password --region "$REGION" \
 
 info "Pushing ${IMAGE}"
 docker push "$IMAGE"
-docker tag "$IMAGE" "$LATEST"
-docker push "$LATEST"
+if docker tag "$IMAGE" "$LATEST" && docker push "$LATEST" 2>/dev/null; then
+  ok "Also tagged:  ${LATEST}"
+else
+  info "Skipped ${LATEST} push (ECR tag may be immutable — use git-sha tag only)"
+fi
 ok "Image pushed: ${IMAGE}"
-ok "Also tagged:  ${LATEST}"
 
 if [[ "$UPDATE_STACKS" -eq 0 ]]; then
   echo "$IMAGE"

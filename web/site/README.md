@@ -57,6 +57,16 @@ web/site/
 
 No bundler, no framework, no build step. Edit the HTML and re-publish.
 
+## Walrus Track copy
+
+The landing page (`index.html`) is aligned with the repo's Walrus Track narrative:
+
+- **`#walrus`** — judge-facing feature grid, tick loop, live proof ids, links to `SUBMISSION.md` and `THREAT_MODEL.md`
+- **Hero / how / tech** — recall → reason → act → publish → coordinate → remember
+- **Marquee + footer** — stack integrations and GitHub submission links
+
+Executive summary for judges lives at the repo root: [`SUBMISSION.md`](../../SUBMISSION.md).
+
 ## Dashboard URL
 
 Every "Mint a vault" / "Open dashboard" link on the site is rewritten at

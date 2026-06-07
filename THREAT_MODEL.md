@@ -1,12 +1,12 @@
 # Synapse Vault — Threat Model & Self-Audit
 
-> Last reviewed: 2026-05-14 · Move package: `0x5da36d892956a4659415e245126a3964dd5aa6cf19ec2fdf6332bf828a4c58ed` (Sui testnet) · Code version: post-Phase-3 wrap
+> **Sui Overflow 2026 · Walrus Track submission artifact**
+>
+> Last reviewed: **2026-05-23** · Active Move package: `0xe95241a800a97841e7676437cc83c9761e6d30e42ab8bdd590d49fd40e22a797` (`synapse_core` v6, Sui testnet)
 
-This document enumerates the threats Synapse Vault was designed to defend
-against, where the trust boundaries actually live, and the residual risk that
-remains. It is the artifact a compliance officer reviews before letting an
-AI agent touch a real treasury, and the document we hand to OpenZeppelin /
-OtterSec for the post-submission audit.
+This document enumerates the threats Synapse Vault was designed to defend against, where trust boundaries live, and the residual risk that remains. It is written for **judges evaluating the Walrus Track submission**, compliance reviewers considering AI treasury automation, and the external auditors we engage before mainnet.
+
+Synapse's security story is inseparable from its Walrus story: **off-chain memory and artifacts can lie; on-chain policy and hashes cannot.**
 
 ---
 
@@ -14,343 +14,230 @@ OtterSec for the post-submission audit.
 
 | # | Asset | Where it lives | Sensitivity |
 |---|---|---|---|
-| A1 | **Vault treasury funds** | `AgentIdentity.treasury` (Sui `Bag`, shared object) | High — direct economic value |
-| A2 | **Owner Sui address** | Human's wallet (Slush, Phantom, Suiet, …) | High — unilateral revocation + drain authority |
-| A3 | **Agent session keypair** | Off-chain disk file (`~/.synapse/session.key`) on the runtime host | Medium — bounded by Move VM policy gates |
-| A4 | **MemWal delegate key** | Off-chain disk or browser `localStorage:synapse:memwal:<agentId>` | Medium — bounded to MemWal account scope |
-| A5 | **MemWal account ID** | `AgentIdentity.memwal_account_id` (bytes on-chain) | Low — public identifier |
-| A6 | **Walrus artifact contents** | Walrus blob storage; pointer in `AgentIdentity` dynamic fields | Low–medium — semi-public audit material |
-| A7 | **Audit trail integrity** | Sui events emitted by the deployed Move package | High — the compliance proof |
-| A8 | **Strategy code** | `@synapse-core/vault/strategies` on the runtime host | Low — deterministic, version-tagged on every action |
+| A1 | **Vault treasury funds** | `AgentIdentity.treasury` (Sui `Bag`, shared object) | **Critical** — direct economic value |
+| A2 | **Owner Sui address** | Human wallet (Slush, Suiet, zkLogin, …) | **Critical** — revoke + drain authority |
+| A3 | **Agent session keypair** | Secrets Manager / disk (`SYNAPSE_SESSION_KEY`) on runtime host | **High** — bounded by Move policy |
+| A4 | **MemWal delegate key** | Runtime secret or browser storage at mint | **Medium** — scoped to MemWal account |
+| A5 | **MemWal account / namespace** | On-chain bytes + relayer-side account | **Medium** — cross-agent coordination surface |
+| A6 | **Walrus audit artifacts** | Walrus blobs; `ArtifactRef` on `AgentIdentity` | **Medium** — compliance proof; hash on-chain |
+| A7 | **Walrus strategy bundles** | Walrus blobs referenced by marketplace `Strategy` | **High** — arbitrary code if consent + hash checks fail |
+| A8 | **Seal-encrypted payloads** | Walrus + Seal key servers | **Medium** — strategy params, messaging bodies |
+| A9 | **On-chain audit trail** | Sui events from `synapse_core` | **Critical** — tamper-evident compliance record |
+| A10 | **Enclave signing key** | Nitro/Oyster enclave or dev box | **High** — forges attested decisions if leaked |
+| A11 | **Messaging channel + MemberCap** | Sui Stack Messaging objects | **Medium** — impersonation / spam if mis-provisioned |
+| A12 | **Cross-agent shared namespace** | MemWal configuration | **Medium** — memory poisoning across vaults |
 
 ---
 
 ## 2. Trust boundaries
 
 ```
-  ┌────────────────────────────────┐
-  │ HUMAN OWNER (wallet, browser)  │  ←─── trusts wallet manufacturer + browser
-  └───────────────┬────────────────┘
-                  │ signs governance PTBs
-                  ▼
-  ┌────────────────────────────────┐
-  │       SUI MOVE VM              │  ←─── trust anchor: validators consensus
-  │  synapse_core::* + Bag treasury│
-  └─────┬─────────────────────┬────┘
-        │ session key gate    │ owner gate
-        ▼                     ▼
-  ┌──────────────┐   ┌────────────────┐
-  │ AGENT RUNTIME│   │ DASHBOARD UI   │  ←─── trusts dapp-kit + RPC fullnode
-  │ (Node, host) │   │ (browser)      │
-  └─────┬────────┘   └────────────────┘
-        │ off-chain HTTP
-        ▼
-  ┌───────────────────────┐
-  │ relayer.memwal.ai     │  ←─── third party (Mysten Labs)
-  │ hermes.pyth.network   │  ←─── third party (Pyth Network)
-  │ Walrus aggregator     │  ←─── third party / decentralized
-  │ DeepBookV3 pool       │  ←─── on-chain, included in Sui consensus
-  └───────────────────────┘
+  ┌─────────────────────────────────────┐
+  │ HUMAN OWNER (wallet / zkLogin)      │  trusts wallet + browser
+  └──────────────┬──────────────────────┘
+                 │ governance PTBs (revoke, policy, Walrus consent)
+                 ▼
+  ┌─────────────────────────────────────┐
+  │ SUI MOVE VM — synapse_core          │  TRUST ANCHOR: only layer that moves funds
+  │ AgentIdentity · wallet · attestation│
+  └───────┬─────────────────┬───────────┘
+          │ session key     │ read-only RPC
+          ▼                 ▼
+  ┌───────────────┐   ┌─────────────────┐
+  │ HEADLESS      │   │ DASHBOARD       │  trusts RPC + npm supply chain
+  │ RUNTIME       │   │ (Next.js)       │
+  │ (Fargate/local)│  └─────────────────┘
+  └───────┬───────┘
+          │ HTTPS / subprocess
+          ▼
+  ┌───────────────────────────────────────────────────────────┐
+  │ Walrus plane (untrusted for safety; trusted for audit)     │
+  │  MemWal relayer · Walrus aggregators · Seal key servers    │
+  │  Pyth Hermes · DeepBookV3 · Sui Stack Messaging SDK        │
+  │  Nautilus enclave HTTP                                     │
+  └───────────────────────────────────────────────────────────┘
 ```
 
-Synapse's defensible position is that **the Move VM is the only authority
-that can move funds**. Everything else — runtimes, MemWal, Pyth, Walrus
-aggregators — can be compromised without compromising treasury safety,
-because every outflow passes through `wallet::spend`'s four-layer policy
-gate.
+**Defensible claim:** Compromise of any box below the Move VM **cannot drain the treasury beyond on-chain policy** (spend cap, allowlist, expiry, revocation). Compromise **can** degrade strategy quality (bad MemWal recall, bad oracle input) or forge **off-chain** audit views — but on-chain hashes and events expose the discrepancy.
+
+**Walrus-specific claim:** Walrus is the **durability and portability** layer, not the **authorization** layer. Authorization always terminates in `wallet::spend` + optional `assert_attested_if_required`.
 
 ---
 
 ## 3. Threat catalog
 
-For each threat: capability, attack vector, impact, mitigation. Severity is
-the residual risk **after** mitigations.
+Severity = residual risk **after** mitigations.
 
 ### T1 · Compromised session key
-- **Capability:** Attacker exfiltrates `~/.synapse/session.key` (host breach,
-  filesystem read, log dump).
-- **Vector:** They can now sign Sui transactions as the agent's session
-  signer.
-- **Impact:** Limited to `wallet::spend(target_pkg, amount, ctx)` calls that
-  satisfy on-chain policy:
-  - `tx_context::sender(ctx) == session_addr` ✓ (attacker has the key)
-  - `!identity.revoked` — defeated by owner revocation
-  - `epoch(ctx) < expiry_epoch` — bounded
-  - `target_pkg ∈ approved_packages` — bounded by the contract allowlist
-  - `spent_this_epoch + amount ≤ spend_per_epoch` — bounded by the cap
-- **Mitigations:**
-  - Move VM enforces the four gates; an unconstrained attacker cannot drain
-    the treasury, only siphon up to the per-epoch cap through allowlisted
-    contracts.
-  - Dashboard's **Rotate session key** flow signs `agent::rotate_session_key`,
-    instantly invalidating the leaked key on chain.
-  - Indexer surfaces every `SpendEvent`; an unusual pattern triggers
-    operational response (revoke).
-- **Residual severity:** **Low.** Maximum theft per compromise = one epoch's
-  spend cap routed through pre-approved contracts. Attacker cannot drain or
-  redirect.
+- **Vector:** Host breach, log leak, overly broad Secrets Manager IAM.
+- **Impact:** Attacker signs as session addr; bounded by per-epoch spend cap + package allowlist + not revoked + not expired.
+- **Mitigations:** Move four-layer gate; rotate session key on-chain; indexer alerts on anomalous `SpendEvent`; hosted runtime uses per-vault secrets.
+- **Residual:** **Low** — max loss ≈ one epoch cap through approved contracts.
 
 ### T2 · Owner key compromise
-- **Capability:** Attacker controls the wallet that originally minted the
-  vault.
-- **Vector:** Phishing, malicious browser extension, social-engineered seed
-  phrase recovery.
-- **Impact:** Full custody — attacker can `agent::revoke` and then
-  `wallet::drain<T>` every coin in the treasury back to themselves. They
-  cannot retroactively alter past events (Sui's append-only ledger).
-- **Mitigations:**
-  - Same wallet-level mitigations as any high-value Sui address: hardware
-    wallets, multisig for production deployments, dedicated wallet for vault
-    governance.
-  - Optional: deploy Synapse Vault behind a multisig (the owner address is
-    just a Sui address; a multisig works without code changes).
-  - Audit trail is preserved — exfiltration is forensically traceable.
-- **Residual severity:** **High** (treasury loss), but identical to any
-  self-custody product. Synapse adds no new attack surface here.
+- **Vector:** Phishing, seed leak, malicious extension.
+- **Impact:** Full custody — revoke agent, drain treasury. Past events remain on-chain.
+- **Mitigations:** Hardware wallet / multisig as owner; no Synapse-specific extra surface.
+- **Residual:** **High** (same as any self-custody), **not introduced by Walrus**.
 
 ### T3 · MemWal relayer compromise
-- **Capability:** Mysten Labs' relayer service is breached or rogue.
-- **Vector:** Attacker controls the server at `relayer.memwal.ai`.
-- **Impact:**
-  - Memory privacy: attacker reads in-flight `remember()` calls before they
-    are Seal-encrypted (relayer holds the encryption step). Historical
-    blobs on Walrus remain Seal-encrypted with the agent's keys.
-  - Memory integrity: attacker can return forged `recall()` results,
-    influencing strategy decisions.
-- **Mitigations:**
-  - Move VM still bounds the damage: bad memory cannot bypass spend caps
-    or allowlists.
-  - Strategy contains internal sanity checks (drift threshold, slippage
-    tolerance) that reject obviously gamed inputs.
-  - Production deployments should adopt MemWal's TEE attestation roadmap.
-- **Residual severity:** **Medium.** Funds remain safe; strategy quality
-  degrades.
+- **Vector:** Rogue or breached `relayer.memwal.ai`.
+- **Impact:** Read in-flight plaintext before Seal; return forged `recall()` influencing rebalance decisions.
+- **Mitigations:** Move caps economic damage; strategy sanity checks (bands, slippage, min-notional); cross-check recalls against on-chain tick history; MemWal TEE roadmap for production.
+- **Residual:** **Medium** — funds safe; strategy quality at risk.
 
-### T4 · Pyth oracle manipulation
-- **Capability:** Attacker influences SUI/USD or USDC/USD on Pyth Network.
-- **Vector:** Coordinated price-feed manipulation across Pyth publishers
-  (historically very expensive).
-- **Impact:** Strategy may decide to rebalance at unfavorable prices.
-- **Mitigations:**
-  - Strategy uses oracle prices only for **decisioning**, not for
-    on-chain settlement (DeepBookV3 enforces actual execution price).
-  - `slippageTolerance` enforces `minAmountOut` in every DeepBookV3 swap —
-    prevents executing a rebalance based on a momentarily bad oracle quote.
-  - Stable-peg fallback (`USDC = $1`) reduces oracle attack surface for the
-    dominant case.
-- **Residual severity:** **Low.** Worst case is a single rebalance executed
-  at marginally unfavorable but still slippage-bounded prices.
+### T4 · Cross-agent / shared-namespace memory poisoning
+- **Vector:** Malicious peer vault writes deceptive MemWal entries in a shared namespace.
+- **Impact:** Reader vault overweights peer signal; suboptimal or mistimed rebalance (still slippage-bounded).
+- **Mitigations:** `record_cross_agent_read` logs peer id + blob id on-chain; reader strategies should treat peer facts as **hints** not commands; owner controls namespace membership via delegate keys; optional attestation path ignores unverified peers.
+- **Residual:** **Medium** — coordination benefit trades off against trust in namespace peers.
 
-### T5 · DeepBookV3 pool exploit
-- **Capability:** A bug in DeepBookV3 itself drains the input coin without
-  returning the expected output.
-- **Vector:** Theoretical — DeepBookV3 is audited and live with hundreds of
-  millions in TVL.
-- **Impact:** Up to one rebalance's `amountIn` is lost.
-- **Mitigations:**
-  - `wallet::spend` caps every outflow at the per-epoch budget.
-  - Synapse's `deepbook_adapter::record_swap` event makes the loss
-    immediately visible to the indexer; an alert triggers revocation.
-  - Allowlist (`approved_packages`) can be tightened to a single
-    pre-vetted DeepBookV3 release.
-- **Residual severity:** **Low.** Out of Synapse's hands but bounded by
-  policy.
+### T5 · Walrus-loaded malicious strategy bundle
+- **Vector:** Attacker publishes attractive strategy on marketplace; owner enables Walrus execution consent.
+- **Impact:** Runtime executes attacker JS inside tick loop — could exfiltrate secrets **on the runtime host**, craft malicious PTB *proposals* (still gated by Move).
+- **Mitigations:** Owner must explicitly `set_walrus_consent`; loader verifies bundle SHA-256 against on-chain `Strategy` metadata; allowlist limits callable Move packages regardless of strategy output; attestation mode binds decision to registered code hash; browser runtime excludes server-only SDKs (LLM).
+- **Residual:** **Medium** on runtime host (secret exfiltration); **Low** on treasury (Move rejects bad spends).
 
-### T6 · Walrus aggregator integrity
-- **Capability:** A specific Walrus aggregator returns tampered blob
-  contents.
-- **Vector:** Attacker runs a public aggregator and serves modified bytes.
-- **Impact:** Compliance officer reviewing an audit report sees fabricated
-  rationale.
-- **Mitigations:**
-  - Every artifact carries an on-chain SHA-256 (`ArtifactRef.sha256`).
-    The dashboard verifies the hash after fetching from any aggregator;
-    mismatches throw.
-  - Compliance officers should fetch from at least two independent
-    aggregators when stakes warrant.
-- **Residual severity:** **Low.** Detectable by anyone with the on-chain
-  hash + a second aggregator.
+### T6 · Walrus aggregator serving tampered artifact bytes
+- **Vector:** Malicious public aggregator returns wrong markdown for a blob id.
+- **Impact:** Compliance UI shows false rationale.
+- **Mitigations:** On-chain `ArtifactRef.sha256`; dashboard verifies after fetch; second independent aggregator cross-check.
+- **Residual:** **Low** — detectable with on-chain hash.
 
-### T7 · Replay / reorg of session-key transactions
-- **Capability:** Attacker rebroadcasts an old PTB after gaining temporary
-  network position.
-- **Vector:** Sui's design includes replay protection via object versions
-  and gas object consumption.
-- **Impact:** Negligible — Sui's consensus rejects replays at the validator
-  layer.
-- **Mitigations:** Out of scope (handled by Sui's transaction format).
-- **Residual severity:** **Negligible.**
+### T7 · Seal policy / key-server misuse
+- **Vector:** Wrong policy package id; expired session key; attacker obtains Seal session without vault identity proof.
+- **Impact:** Decrypt failure (availability) or unauthorized decrypt of messaging/strategy blobs if policy misconfigured.
+- **Mitigations:** Dedicated `synapse_seal` policy; `seal_approve` checks vault identity prefix; dashboard uses same package id as runtime; encrypt path tested in CI.
+- **Residual:** **Low** with correct deployment; **Medium** if operator pins wrong policy id.
 
-### T8 · Frontend supply-chain attack
-- **Capability:** Attacker compromises one of the dashboard's npm
-  dependencies (e.g., `motion`, `@mysten/dapp-kit`, `react-three-fiber`).
-- **Vector:** Malicious package update or typosquat.
-- **Impact:** Attacker could read clipboard, exfiltrate the session-key
-  secret during `Rotate session key`, or rewrite the wallet PTB to point at
-  a different package ID.
-- **Mitigations:**
-  - All upstream versions are pinned in `package.json` (no caret-only
-    ranges for high-impact packages should be promoted past the Phase-3
-    review).
-  - `package-lock.json` is checked in.
-  - The mint and revoke flows display the **exact Move call** before
-    signing — wallet popups also show the target. A wallet user reviewing
-    the popup sees `0x70db…ec16::agent::rotate_session_key` regardless of
-    what the frontend is doing.
-  - Pre-submission: pin every direct dependency to an exact version, audit
-    `package-lock.json` against `npm audit --omit=dev`.
-- **Residual severity:** **Medium** until pre-submission audit; **Low**
-  thereafter.
+### T8 · Pyth oracle manipulation
+- **Vector:** Expensive coordinated feed manipulation.
+- **Impact:** Mis-sized rebalance decision (execution still at DeepBook + slippage floor).
+- **Mitigations:** Oracle used for sizing only; `minAmountOut` on swaps; stable-peg fallback for USDC.
+- **Residual:** **Low**.
 
-### T9 · Capability hot-potato escape
-- **Capability:** A future Move module references `AgentIdentity` via
-  `&mut` and bypasses the policy gates.
-- **Vector:** A patched / re-deployed Synapse package that doesn't enforce
-  `assert_can_act` in some new function.
-- **Mitigation:**
-  - The current package's `AgentIdentity` has `key` but no `store` ability
-    — it cannot be wrapped or transferred away from the shared-object slot.
-  - All mutators are gated either by `assert_can_act` (session key path)
-    or `assert_owner` (governance path).
-  - Audit checklist (§5) verifies this before every `sui move publish`.
-- **Residual severity:** **Low** at v1; **must re-audit on any package
-  upgrade**.
+### T9 · DeepBookV3 pool exploit
+- **Vector:** Bug in DeepBook itself.
+- **Impact:** Loss of one rebalance's input coin.
+- **Mitigations:** Per-epoch cap; immediate visibility via `SwapEvent`; allowlist single DeepBook package version.
+- **Residual:** **Low** — bounded, out of Synapse control.
 
-### T10 · Parallel-execution race on shared `AgentIdentity`
-- **Capability:** Two concurrent transactions try to mutate `AgentIdentity`
-  with overlapping intents.
-- **Vector:** Sui's parallel execution scheduler.
-- **Impact:** None — Sui linearizes mutations on shared objects via
-  consensus.
-- **Mitigations:**
-  - The Move VM serializes any tx that takes `&mut AgentIdentity`.
-  - `spent_this_epoch` counter increments are atomic per epoch.
-- **Residual severity:** **Negligible.**
+### T10 · Nautilus / enclave impersonation
+- **Vector:** Attacker registers rogue enclave or steals dev signing key.
+- **Impact:** Forged `DecisionAttested` allowing trades on attestation-gated vaults.
+- **Mitigations:** On-chain enclave registration tied to PCR measurement (production); dev enclave clearly labeled in docs; owner opts in per vault; decision payload binds vault id + epoch + inputs hash + code hash.
+- **Residual:** **Low** on mainnet with hardware attestation; **Medium** on testnet dev box (documented).
 
-### T11 · Indexer corruption (when deployed)
-- **Capability:** A future hosted indexer service serves tampered data.
-- **Vector:** Compromised service or rogue operator.
-- **Impact:** Compliance dashboard shows incorrect history.
-- **Mitigations:**
-  - Dashboard never requires the indexer to mutate anything. Reads only.
-  - Inspector falls back to direct Sui RPC, which the user can verify
-    against any fullnode.
-  - Every event is also reproducible from `getTransactionBlock` directly.
-- **Residual severity:** **Low.** Always cross-checkable against chain.
+### T11 · Sui Stack Messaging impersonation / spam
+- **Vector:** Session key not added to channel (`MemberCap` missing); attacker floods inbox on public channel.
+- **Impact:** Missing emit (`record_send` never called); reader consumes junk signals as memory facts.
+- **Mitigations:** `provision-messaging-channel.ts` adds session keys; runtime treats signals as untrusted hints; rebalance-only emit reduces noise; on-chain correlator links digest to channel id.
+- **Residual:** **Low** economic impact; **Medium** operational (misconfiguration).
 
-### T12 · Browser localStorage leak of MemWal delegate
-- **Capability:** Cross-site scripting or extension reads
-  `synapse:memwal:<agentId>`.
-- **Vector:** XSS in our app (we host nothing user-generated) or malicious
-  browser extension.
-- **Impact:** Attacker can call MemWal `remember`/`recall` as the agent —
-  i.e., forge or read memory.
-- **Mitigations:**
-  - Next.js + React's default escape policies prevent inline XSS.
-  - No user-generated content rendered in the dashboard. No
-    `dangerouslySetInnerHTML` outside the audit-report viewer (which only
-    runs after Walrus SHA-256 verification).
-  - Production deployments should keep the delegate key in an HSM or
-    Seal-encrypted Walrus blob, not browser storage. Documented in
-    `docs/memwal-setup.md`.
-- **Residual severity:** **Medium** for testnet demo; **mitigated by
-  policy** for production.
+### T12 · Frontend supply-chain attack
+- **Vector:** Compromised npm dependency in dashboard.
+- **Impact:** Exfiltrate keys during rotate; redirect PTB to malicious package id.
+- **Mitigations:** Lockfile checked in; wallet shows raw Move call; pre-mainnet dependency pin + audit.
+- **Residual:** **Medium** until external audit; **Low** after.
+
+### T13 · Indexer / dashboard data tampering
+- **Vector:** Hosted indexer serves false timeline.
+- **Impact:** Operator misjudges vault state.
+- **Mitigations:** Dashboard falls back to RPC; events reproducible from `getTransactionBlock`; Walrus hashes verifiable independently.
+- **Residual:** **Low**.
+
+### T14 · Parallel execution race on `AgentIdentity`
+- **Vector:** Concurrent PTBs mutating same shared object.
+- **Impact:** None — Sui serializes `&mut AgentIdentity`.
+- **Residual:** **Negligible**.
+
+### T15 · Capability / upgrade escape (future package bug)
+- **Vector:** New Move entry skips `assert_can_act` / `assert_owner`.
+- **Mitigations:** `AgentIdentity` has `key` not `store`; checklist §5 before every publish; external audit.
+- **Residual:** **Low** at v6; **re-audit on every upgrade**.
 
 ---
 
-## 4. Cross-cutting controls
+## 4. Walrus Track — security properties we optimize for
 
-These hold regardless of which threat fires:
+These are the properties judges should associate with our Walrus integration:
 
-1. **Move VM as the chokepoint.** Every fund-moving call goes through
-   `wallet::spend` or `wallet::withdraw`. The four-layer gate (revoked,
-   sender, expiry, allowlist) plus the spend cap cannot be bypassed by any
-   off-chain compromise.
-2. **One-PTB revocation cascade.** `agent::revoke` flips a boolean and
-   emits an event the indexer consumes to invalidate the MemWal delegate
-   and queue Walrus eviction. There is no asynchronous revocation lag.
-3. **No `store` ability on `AgentIdentity`.** The shared object cannot be
-   wrapped, transferred, or destroyed by any other module without an
-   explicit governance action.
-4. **Append-only audit trail.** Every action on a vault produces a Sui
-   event. The full timeline is reconstructible by anyone with a Sui
-   fullnode connection — no Synapse infrastructure is required for
-   forensics.
-5. **No `any`, no `@ts-ignore`, no fake values.** Repository-wide policy.
-   The forbidden-pattern scan passes on every commit.
+| Property | Mechanism | Holds if Walrus/ MemWal compromised? |
+|---|---|---|
+| **Treasury safety** | Move policy gates on every `spend` | **Yes** |
+| **Audit integrity** | SHA-256 on-chain + Walrus blob | **Detectable** (hash mismatch) |
+| **Memory durability** | MemWal → Walrus persistence | **Availability** risk only |
+| **Cross-agent transparency** | `CrossAgentReadEvent` + peer blob id | **Yes** (chain log honest) |
+| **Private strategy params** | Seal + `synapse_seal` policy | **Yes** if policy correct |
+| **Verifiable decision** | Nautilus signature + `requires_attestation` | **Yes** if enclave registration honest |
 
 ---
 
-## 5. Pre-publish audit checklist
+## 5. Cross-cutting controls
 
-Run this before any new `sui client publish` of `synapse_core`. **Required
-for any production deployment.**
+1. **Move VM chokepoint** — Every outflow through `wallet::spend` / `withdraw` with revoked, sender, expiry, allowlist, and cap checks.
+2. **Attestation gate (opt-in)** — `requires_attestation` aborts spend without verified enclave decision in the same PTB.
+3. **Walrus consent (opt-in)** — Dynamic field `accepts_walrus_execution`; runtime refuses hash-unverified bundles without owner consent.
+4. **One-PTB revocation** — `agent::revoke` immediately blocks session path; cascade invalidates MemWal delegate.
+5. **Append-only forensics** — Swap, spend, artifact, coordination, messaging, and attestation events on-chain; Walrus holds human-readable rationale.
+6. **No `store` on `AgentIdentity`** — Cannot wrap or exfiltrate the shared object without governance.
+7. **Secret hygiene** — Session keys via secrets provider; logger redaction tests; forbidden-pattern CI scan.
+
+---
+
+## 6. Pre-publish audit checklist
+
+Run before any new `sui client publish` of `synapse_core`.
 
 ### Move
-- [ ] No new `entry` or `public` function lacks an appropriate
-      `assert_can_act` (session-key path) or `assert_owner` (governance
-      path) call.
-- [ ] No new mutator on `AgentIdentity` accepts `&mut` without going
-      through the gates above.
-- [ ] `AgentIdentity` still has `key` only — never `store`.
-- [ ] No unbounded `vector<T>` field added (use `Table` or capped vector
-      with explicit size check).
-- [ ] All entry functions use `&TxContext` not `&mut TxContext` unless they
-      genuinely need to mutate context.
-- [ ] `sui move test` reports 100% pass rate.
-- [ ] `sui move build` reports zero warnings.
-- [ ] New events documented in `docs/architecture.md` event catalog.
+- [ ] Every new mutator uses `assert_can_act` or `assert_owner`.
+- [ ] `AgentIdentity` retains `key` only — never `store`.
+- [ ] Royalty charges remain inside per-epoch spend cap.
+- [ ] Attestation and Walrus consent gates unchanged or re-reviewed.
+- [ ] `sui move test` — 100% pass, zero warnings.
 
-### Off-chain SDK
-- [ ] `npm run typecheck --workspaces` passes across every package.
-- [ ] Forbidden-pattern grep returns empty:
-      `grep -rnE "TODO|FIXME|Math\\.random|@ts-ignore|console\\.log|\\bas any\\b" sdk/packages`
-- [ ] `package.json` exact versions pinned for every direct dependency.
-- [ ] `package-lock.json` is committed and matches `package.json`.
+### Runtime / Walrus
+- [ ] Walrus loader rejects bundles whose hash ≠ on-chain strategy metadata.
+- [ ] MemWal namespace config documented per vault; cross-agent peers explicitly listed.
+- [ ] Messaging: session MemberCaps verified before production emit.
+- [ ] `npm --workspace @synapse-core/vault test` passes.
 
 ### Dashboard
-- [ ] `npm run build` produces a clean Next.js production bundle.
-- [ ] No `dangerouslySetInnerHTML` outside the audit-report viewer.
-- [ ] Wallet PTB previews in modals match the exact Move call signature
-      before signature is requested.
-- [ ] All `'use client'` files have been reviewed for clipboard / secret
-      handling.
-
-### Runtime
-- [ ] Session keypair is loaded from `SYNAPSE_SESSION_KEY_PATH` only —
-      never from an environment variable that might end up in process
-      listings or log dumps.
-- [ ] `@synapse-core/vault` runtime tests (`npm --workspace
-      @synapse-core/vault test`) pass.
-- [ ] Pino logger uses `info`/`warn`/`error` levels — never `debug` with
-      secrets.
-- [ ] `--once` mode exits cleanly with `process.exitCode = 1` on failure.
+- [ ] Production build clean; artifact viewer verifies SHA-256 before render.
+- [ ] Wallet modals show exact Move target before sign.
 
 ---
 
-## 6. Outstanding items for the August 20 mainnet deployment
+## 7. Outstanding items (pre-mainnet)
 
-| # | Item | Owner | Required by |
-|---|---|---|---|
-| 1 | External security review (OpenZeppelin or OtterSec credit) | Submission package post-shortlist | Aug 5 |
-| 2 | Pin every direct dependency to exact versions (remove all `^`) | Synapse team | Aug 10 |
-| 3 | Document MemWal HSM / Seal-encrypted-Walrus storage path for delegate keys | Synapse team + MemWal team | Aug 10 |
-| 4 | Strategy bounded-loss circuit breaker (max NAV drawdown per epoch) | Synapse team | Aug 15 |
-| 5 | Indexer rate-limit + auth for the public GraphQL endpoint | Synapse team | Aug 15 |
-| 6 | Mainnet dry-run with the first design partner's funded vault | Synapse + design partner | Aug 18 |
-
----
-
-## 7. Reporting a vulnerability
-
-For testnet (current): file an issue at the public GitHub repo with as
-much reproducible detail as you can.
-
-For mainnet (post-August 20): a dedicated bug bounty surface will be
-announced. In the interim, contact the team via the address listed in the
-mainnet `synapse_core` package's `UpgradeCap` owner field.
+| # | Item | Target |
+|---|---|---|
+| 1 | External security review (OpenZeppelin / OtterSec) | Post-shortlist |
+| 2 | Pin all direct npm deps to exact versions | Pre-mainnet |
+| 3 | Production Nautilus deploy (Oyster/Nitro) replacing dev box | Pre-mainnet |
+| 4 | MemWal delegate in HSM / Seal-encrypted Walrus blob (not browser) | Production hosting |
+| 5 | Strategy drawdown circuit breaker (max NAV loss per epoch) | v7 roadmap |
+| 6 | Dashboard one-click "add session to messaging channel" | UX hardening |
+| 7 | Mainnet dry-run with funded design-partner vault | Cutover week |
 
 ---
 
-*This document is reviewed before every package upgrade. Last reviewer:
-Synapse team, 2026-05-14.*
+## 8. Reporting a vulnerability
+
+**Testnet:** GitHub issue with reproducible steps.
+
+**Mainnet (future):** Bug bounty via address in `UpgradeCap` owner metadata.
+
+---
+
+## 9. Related documents
+
+| Document | Purpose |
+|---|---|
+| [README.md](./README.md) | Walrus Track feature map + architecture |
+| [AUDIT.md](./AUDIT.md) | Internal multi-agent audit + remediation log |
+| [enclave/README.md](./enclave/README.md) | Nautilus deployment + threat notes for TEE path |
+
+---
+
+*Reviewed before every package upgrade. Last reviewer: Synapse team, 2026-05-23.*

@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Synapse Vault — Autonomous AI Treasury Management on Sui</title>
+    <title>Synapse Vault — Walrus-Native Autonomous Treasury on Sui</title>
     <meta
       name="description"
-      content="Hire an AI portfolio manager. Pay it in basis points. Revoke it in one click. Sui Overflow 2026 · Walrus Specialized Track."
+      content="The Walrus-native autonomous treasury: MemWal memory, Walrus audit artifacts, cross-agent coordination, and Move policy gates in every tick. Sui Overflow 2026 · Walrus Track."
     />
-    <meta property="og:title" content="Synapse Vault" />
+    <meta property="og:title" content="Synapse Vault — Walrus Track" />
     <meta
       property="og:description"
-      content="Autonomous AI treasury management on Sui — 1% AUM, cryptographic kill switch, fully on-chain audit."
+      content="Recall → reason → act → publish → coordinate → remember. Every tick on Walrus; every trade on-chain."
     />
     <meta property="og:type" content="website" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -43,6 +43,7 @@
         <span class="logo-text">Synapse<span class="dot">.</span></span>
       </a>
       <nav class="site-nav-links">
+        <a href="#walrus">Walrus Track</a>
         <a href="#how">How it works</a>
         <a href="#pricing">Pricing</a>
         <a href="#tech">Built on</a>
@@ -78,9 +79,9 @@
             </h1>
             <p class="lede">
               Hire an AI portfolio manager. Pay it in basis points. Revoke it in one click.
-              <span class="serif">Synapse Vault</span> is the first treasury manager where every
-              decision is policy-bounded on-chain and every dollar is auditable to a single Sui
-              transaction.
+              <span class="serif">Synapse Vault</span> wires Walrus into the production tick loop —
+              MemWal memory, hash-anchored audit artifacts, cross-agent coordination — while the
+              Move VM remains the only authority that can move funds.
             </p>
             <div class="hero-actions">
               <a class="btn btn-primary" href="https://localhost:3001/mint">
@@ -144,22 +145,111 @@
         </div>
       </section>
 
+      <!-- Walrus Track — judge-facing summary -->
+      <section id="walrus" class="section section-soft">
+        <div class="section-header" data-reveal>
+          <span class="mono-small">&lt;walrus-track&gt; · Sui Overflow 2026</span>
+          <h2 class="headline-2">
+            Walrus in every tick.<br />
+            <span class="serif">Not a bolt-on demo.</span>
+          </h2>
+          <p>
+            The Walrus track asks for agents that remember, share context, and produce verifiable
+            artifacts. Synapse runs that pipeline on every autonomous tick — rebalance or noop —
+            on testnet Fargate vaults today.
+          </p>
+        </div>
+
+        <div class="walrus-grid" data-reveal data-reveal-delay="80">
+          <article class="walrus-card card-flat">
+            <span class="mono-small">01 · memory</span>
+            <h3>MemWal every tick</h3>
+            <p>
+              <code>recall</code> before decide, <code>remember</code> after. Counters, EMA state,
+              and decision history survive restarts. Same semantic query in the dashboard recall
+              panel.
+            </p>
+          </article>
+          <article class="walrus-card card-flat">
+            <span class="mono-small">02 · artifacts</span>
+            <h3>Walrus audit trail</h3>
+            <p>
+              Markdown rationale uploaded every tick. On-chain <code>ArtifactRef</code> stores blob
+              id + SHA-256. Any aggregator can verify — hash mismatch means tampering.
+            </p>
+          </article>
+          <article class="walrus-card card-flat">
+            <span class="mono-small">03 · coordination</span>
+            <h3>Multi-agent by default</h3>
+            <p>
+              Shared MemWal namespace with on-chain <code>CrossAgentReadEvent</code>. Sui Stack
+              Messaging for rebalance signals — Seal payloads on Walrus, correlator on-chain.
+            </p>
+          </article>
+          <article class="walrus-card card-flat">
+            <span class="mono-small">04 · safety</span>
+            <h3>Move policy + attestation</h3>
+            <p>
+              Spend cap, allowlist, expiry, one-tx revoke. Optional Nautilus path: enclave signs
+              the decision; Move verifies before DeepBook executes.
+            </p>
+          </article>
+        </div>
+
+        <div class="tick-panel card-flat" data-reveal data-reveal-delay="160">
+          <span class="mono-small">&lt;tick-loop&gt; · sdk/packages/vault/runtime</span>
+          <pre class="tick-loop" aria-label="Walrus-native tick loop">RECALL    MemWal + cross-agent peer facts (+ messaging inbox)
+REASON    TS · LangGraph · LLM · attested enclave
+ACT       One PTB → policy gate → DeepBook → royalty → log
+PUBLISH   Rationale → Walrus · SHA-256 on-chain
+COORDINATE  Rebalance signal → peers (Messaging)
+REMEMBER  Outcome → MemWal for next tick</pre>
+          <p class="mono-mini walrus-proof">
+            Live proofs · cross-agent read
+            <code>AQQZhQRQ…DzRm</code> · attestation <code>7TLfyS6a…AkPe</code> · package
+            <code>0xe95241a8…a797</code>
+          </p>
+        </div>
+
+        <div class="walrus-actions" data-reveal data-reveal-delay="220">
+          <a
+            class="btn btn-ghost"
+            href="https://github.com/SuyashAlphaC/Synapse/blob/main/SUBMISSION.md"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Judge executive summary
+          </a>
+          <a
+            class="btn btn-ghost"
+            href="https://github.com/SuyashAlphaC/Synapse/blob/main/THREAT_MODEL.md"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Threat model
+          </a>
+          <a class="btn btn-accent" href="https://localhost:3001/dashboard">Open live dashboard</a>
+        </div>
+      </section>
+
       <!-- Partners marquee -->
       <section class="partners">
         <div class="marquee">
           <ul class="marquee-track">
-            <li>● Built on Walrus</li>
-            <li>● Built on MemWal</li>
-            <li>● Built on DeepBookV3</li>
-            <li>● Built on Seal</li>
-            <li>● Built on Sui Stack Messaging</li>
-            <li>● Built on zkLogin</li>
-            <li>● Built on Walrus</li>
-            <li>● Built on MemWal</li>
-            <li>● Built on DeepBookV3</li>
-            <li>● Built on Seal</li>
-            <li>● Built on Sui Stack Messaging</li>
-            <li>● Built on zkLogin</li>
+            <li>● Walrus blobs + Walrus Sites</li>
+            <li>● MemWal semantic memory</li>
+            <li>● Seal encryption</li>
+            <li>● Sui Stack Messaging</li>
+            <li>● Nautilus attestation</li>
+            <li>● LangGraph adapter</li>
+            <li>● DeepBookV3 · Move policy</li>
+            <li>● Walrus blobs + Walrus Sites</li>
+            <li>● MemWal semantic memory</li>
+            <li>● Seal encryption</li>
+            <li>● Sui Stack Messaging</li>
+            <li>● Nautilus attestation</li>
+            <li>● LangGraph adapter</li>
+            <li>● DeepBookV3 · Move policy</li>
           </ul>
         </div>
       </section>
@@ -196,35 +286,36 @@
       <section id="how" class="section">
         <div class="section-grid" data-reveal>
           <div class="section-intro">
-            <span class="mono-small">&lt;how&gt; · four primitives, one audit trail</span>
+            <span class="mono-small">&lt;how&gt; · recall → reason → act → remember</span>
             <h2 class="headline-2">
-              Four primitives.<br />One <span class="serif">audit trail</span>.
+              Six steps.<br />One <span class="serif">Walrus-native</span> loop.
             </h2>
             <p>
-              Every Vault is a single Sui object that composes Walrus storage, MemWal memory,
-              Seal encryption, and DeepBookV3 liquidity. The Move VM enforces every policy gate.
+              Every vault tick composes MemWal recall, strategy evaluation, Move-gated execution,
+              Walrus artifact publish, optional peer coordination, and MemWal remember — not as
+              optional hooks, but as the default runtime path.
             </p>
           </div>
           <ol class="steps">
             <li class="step">
               <div class="step-marker" style="background:#4A9BFF">01</div>
               <div>
-                <span class="mono-small">identity</span>
+                <span class="mono-small">mint</span>
                 <h3>Mint with zkLogin</h3>
                 <p>
-                  Sign in with Google. Spawn a Vault in two clicks with spend cap, contract
-                  allowlist, and expiry baked into Move at mint time.
+                  Sign in with Google. Spawn a vault with spend cap, contract allowlist, expiry, and
+                  optional Walrus execution consent baked into Move at mint time.
                 </p>
               </div>
             </li>
             <li class="step">
               <div class="step-marker" style="background:#5BD49C">02</div>
               <div>
-                <span class="mono-small">memory</span>
+                <span class="mono-small">recall</span>
                 <h3>Recall via MemWal</h3>
                 <p>
-                  The strategy reads its long-term memory off Walrus before every decision. Past
-                  rebalance rationale persists across sessions and survives crashes.
+                  Before every decision the runtime recalls semantic memory from Walrus — counters,
+                  past rationale, and cross-agent peer facts from a shared namespace.
                 </p>
               </div>
             </li>
@@ -232,21 +323,43 @@
               <div class="step-marker" style="background:#FF6B35">03</div>
               <div>
                 <span class="mono-small">execute</span>
-                <h3>Execute on DeepBookV3</h3>
+                <h3>Act on DeepBookV3</h3>
                 <p>
-                  One PTB chains policy gate → wallet::spend → DeepBookV3 swap → record audit.
-                  Atomic. No off-policy action can land — the Move VM rejects it.
+                  One PTB: optional attestation verify → policy gate → DeepBook swap → performance
+                  + royalty. The Move VM rejects anything off-policy — atomically.
                 </p>
               </div>
             </li>
             <li class="step">
               <div class="step-marker" style="background:#9D7AEB">04</div>
               <div>
-                <span class="mono-small">audit</span>
-                <h3>Audit &amp; revoke</h3>
+                <span class="mono-small">publish</span>
+                <h3>Publish to Walrus</h3>
                 <p>
-                  Every action is a signed event. Compliance officers query by agent + epoch. One
-                  revocation PTB cascades wallet, MemWal delegate, and Walrus blobs.
+                  Upload tick rationale as a markdown blob. On-chain <code>ArtifactRef</code> stores
+                  blob id + SHA-256 so anyone can verify the audit trail independently.
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <div class="step-marker" style="background:#F7C543">05</div>
+              <div>
+                <span class="mono-small">coordinate</span>
+                <h3>Signal peers</h3>
+                <p>
+                  On rebalance, emit a Seal-encrypted signal via Sui Stack Messaging. On-chain
+                  correlator links digest to channel — peers consume it as memory on the next tick.
+                </p>
+              </div>
+            </li>
+            <li class="step">
+              <div class="step-marker" style="background:#C77DFF">06</div>
+              <div>
+                <span class="mono-small">remember</span>
+                <h3>Remember &amp; revoke</h3>
+                <p>
+                  Persist the outcome to MemWal for the next tick. One owner revocation PTB cascades
+                  session authority, MemWal delegate, and Walrus eviction — instantly.
                 </p>
               </div>
             </li>
@@ -340,17 +453,17 @@
         <div class="section-header" data-reveal>
           <span class="mono-small">&lt;built-on&gt;</span>
           <h2 class="headline-2">
-            Six sponsor primitives.<br />One coherent product.
+            Eight stack integrations.<br />One coherent product.
           </h2>
         </div>
         <div class="tech-grid" data-reveal data-reveal-delay="100">
           <div class="tech-card" style="border-top-color:#FF6B35">
             <h3>Walrus</h3>
-            <p>Programmable blob storage for audit reports + datasets. Verifiable, decentralized.</p>
+            <p>Per-tick audit artifacts + Walrus Sites front door. SHA-256 anchored on-chain.</p>
           </div>
           <div class="tech-card" style="border-top-color:#9D7AEB">
             <h3>MemWal</h3>
-            <p>Long-term semantic memory for agents. Delegate-key authentication, Seal encryption.</p>
+            <p>Semantic recall/remember every tick. Cross-agent shared namespace with on-chain attestation.</p>
           </div>
           <div class="tech-card" style="border-top-color:#5BD49C">
             <h3>DeepBookV3</h3>
@@ -358,15 +471,23 @@
           </div>
           <div class="tech-card" style="border-top-color:#4A9BFF">
             <h3>Seal</h3>
-            <p>Client-side encryption for sensitive artifacts. End-to-end privacy at rest.</p>
+            <p>Encrypted strategy params and messaging payloads. Dedicated <code>synapse_seal</code> policy.</p>
           </div>
           <div class="tech-card" style="border-top-color:#F7C543">
             <h3>Sui Stack Messaging</h3>
-            <p>Inter-agent comms with Seal payloads, Walrus storage, full on-chain audit log.</p>
+            <p>Peer rebalance signals — Walrus + Seal off-chain, <code>record_send</code> on-chain.</p>
+          </div>
+          <div class="tech-card" style="border-top-color:#C77DFF">
+            <h3>Nautilus</h3>
+            <p>Attested decision enclave. Move verifies signature before swap when enabled.</p>
+          </div>
+          <div class="tech-card" style="border-top-color:#56D4DD">
+            <h3>LangGraph</h3>
+            <p><code>SynapseStore</code> adapter — Walrus-durable agent memory for any LangGraph workflow.</p>
           </div>
           <div class="tech-card" style="border-top-color:#FF8FA3">
-            <h3>zkLogin</h3>
-            <p>Anchor agents to a human Google identity. No seed phrase, no custodial provider.</p>
+            <h3>zkLogin + Move</h3>
+            <p>Frictionless mint. Policy gates (cap, allowlist, revoke) enforced in the VM, not our backend.</p>
           </div>
         </div>
       </section>
@@ -471,9 +592,11 @@
           <details>
             <summary>Is this production-ready?</summary>
             <p>
-              Testnet today. Mainnet target: August 20, 2026, with external security audit
-              (OpenZeppelin or OtterSec) in the run-up. Read <code>docs/threat-model.md</code>
-              for the full security review.
+              Testnet today — hosted Fargate ticks, live vaults, Walrus artifacts on every tick.
+              External security audit (OpenZeppelin or OtterSec) before mainnet. Read
+              <a href="https://github.com/SuyashAlphaC/Synapse/blob/main/THREAT_MODEL.md">THREAT_MODEL.md</a>
+              and the
+              <a href="https://github.com/SuyashAlphaC/Synapse/blob/main/SUBMISSION.md">Walrus Track executive summary</a>.
             </p>
           </details>
           <details>
@@ -513,10 +636,11 @@
       <footer>
         <span class="mono-small">© 2026 Synapse Labs · Built for Sui Overflow 2026</span>
         <nav class="footer-nav">
+          <a href="https://github.com/SuyashAlphaC/Synapse">GitHub</a>
+          <a href="https://github.com/SuyashAlphaC/Synapse/blob/main/SUBMISSION.md">Submission</a>
           <a href="https://docs.wal.app/">Walrus</a>
           <a href="https://docs.memwal.ai/">MemWal</a>
-          <a href="https://github.com/MystenLabs/sui">Sui</a>
-          <a href="#how">Docs</a>
+          <a href="#walrus">Walrus Track</a>
         </nav>
       </footer>
     </main>

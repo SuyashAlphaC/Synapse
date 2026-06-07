@@ -21,7 +21,7 @@ import type {
 import { computePlanId } from '../executor.js';
 
 export const MM_INVENTORY_ID = 'mm-inventory' as const;
-const STRATEGY_VERSION = '1.0.0';
+const STRATEGY_VERSION = '1.0.1';
 
 export interface MmInventoryConfig {
   baseTypeTag: string;
@@ -34,6 +34,8 @@ export interface MmInventoryConfig {
   upperBaseWeight: number;
   slippageTolerance: number;
   poolId: string;
+  /** Skip rebalance when sizing is below this USD notional. Default 1. */
+  minNotionalUsd?: number;
 }
 
 export function mmInventory(config: MmInventoryConfig): Strategy {
@@ -123,6 +125,17 @@ async function evaluate(
       amountIn,
       minAmountOut: minOut,
       direction: 0,
+    };
+  }
+
+  const minNotional = config.minNotionalUsd ?? 1;
+  if (sizingUsd < minNotional) {
+    return {
+      kind: 'noop',
+      rationale:
+        `${config.baseSymbol} weight ${(baseWeight * 100).toFixed(2)}% outside band but ` +
+        `sizing $${sizingUsd.toFixed(2)} below $${minNotional.toFixed(2)} min notional — hold.`,
+      signals: { baseWeight, lower: config.lowerBaseWeight, upper: config.upperBaseWeight, sizingUsd },
     };
   }
 

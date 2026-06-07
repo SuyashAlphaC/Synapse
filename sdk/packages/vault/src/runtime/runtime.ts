@@ -108,6 +108,7 @@ import { createLogger, type VaultLogger } from './logger.js';
 import type { RuntimeConfig } from './config.js';
 import { resolveStrategyWithWalrus } from './strategy-resolver.js';
 import { fetchStrategyMeta } from './walrus-loader.js';
+import { applyRebalanceTradeGuards } from './trade-guards.js';
 import { EnvSecretsProvider, type SecretsProvider } from './secrets.js';
 import {
   consumeSignals,
@@ -645,6 +646,16 @@ export class VaultRuntime {
     } else {
       decision = await activeStrategy.evaluate(input, strategyRuntime);
     }
+
+    // Dust rebalances at MM band edges can abort DeepBook with
+    // EMinimumQuantityOutNotMet (abort 12). Skip or relax min_out on
+    // unattested ticks only — attested PTBs must match the enclave hash.
+    if (decision.kind === 'rebalance' && attestation === undefined) {
+      decision = applyRebalanceTradeGuards(decision, holdings, {
+        minTradeUsd: this.#config.minTradeUsd ?? 1,
+      });
+    }
+
     const report = renderReport({
       vaultId: this.#config.agentId,
       strategyId: activeStrategy.id,

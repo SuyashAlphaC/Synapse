@@ -194,6 +194,12 @@ export interface RuntimeConfig {
    * path when present; override via `SYNAPSE_MESSAGING_BRIDGE_PATH`.
    */
   messagingBridgeScriptPath?: string;
+  /**
+   * Minimum USD notional per rebalance leg. Below this the runtime converts
+   * the tick to noop (avoids DeepBook `EMinimumQuantityOutNotMet`, abort 12).
+   * Wired from `SYNAPSE_MIN_TRADE_USD`. Default 1.
+   */
+  minTradeUsd?: number;
 }
 
 export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
@@ -299,6 +305,9 @@ export function loadFromEnv(env: NodeJS.ProcessEnv = process.env): RuntimeConfig
     ...(env.SYNAPSE_MESSAGING_BRIDGE_PATH
       ? { messagingBridgeScriptPath: env.SYNAPSE_MESSAGING_BRIDGE_PATH }
       : {}),
+    ...(env.SYNAPSE_MIN_TRADE_USD
+      ? { minTradeUsd: numberFromEnv(env.SYNAPSE_MIN_TRADE_USD, 1) }
+      : { minTradeUsd: 1 }),
   };
 }
 
