@@ -320,6 +320,7 @@ export function PolicyPanel({ live }: PolicyPanelProps) {
       {live && editMode === 'attestation' && (
         <AttestationModal
           identity={live.identity}
+          mintPackageId={live.mintPackageId}
           onClose={() => setEditMode(null)}
         />
       )}
@@ -1040,9 +1041,11 @@ function WalrusConsentModal({
 
 function AttestationModal({
   identity,
+  mintPackageId,
   onClose,
 }: {
   identity: PricedVaultState['identity'];
+  mintPackageId: string;
   onClose: () => void;
 }) {
   const account = useCurrentAccount();
@@ -1054,7 +1057,11 @@ function AttestationModal({
   async function go() {
     setError(null);
     try {
-      const tx = buildSetRequiresAttestationPTB({ agentId: identity.id, required: enabling });
+      const tx = buildSetRequiresAttestationPTB({
+        agentId: identity.id,
+        required: enabling,
+        packageId: mintPackageId,
+      });
       const d = await submit({
         tx,
         vaultId: identity.id,

@@ -247,7 +247,9 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
             loading={liveQuery.isLoading}
           />
           <PolicyPanel {...(live ? { live } : {})} />
-          {liveVault && <DepositPanel vaultId={liveVault.agentId} />}
+          {liveVault && live && (
+            <DepositPanel vaultId={liveVault.agentId} mintPackageId={live.mintPackageId} />
+          )}
           {liveVault && live && live.pricedHoldings.some((h) => h.amount > 0n) && (
             <WithdrawPanel
               vaultId={liveVault.agentId}

@@ -26,8 +26,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ok()   { printf '\033[32m✓\033[0m %s\n' "$*"; }
-info() { printf '\033[36m→\033[0m %s\n' "$*"; }
+ok()   { printf '\033[32m✓\033[0m %s\n' "$*" >&2; }
+info() { printf '\033[36m→\033[0m %s\n' "$*" >&2; }
 err()  { printf '\033[31m✗\033[0m %s\n' "$*" >&2; }
 die()  { err "$*"; exit 1; }
 

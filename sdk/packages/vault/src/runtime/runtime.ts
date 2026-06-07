@@ -624,22 +624,14 @@ export class VaultRuntime {
       }
     }
 
-    // Attested execution (Nautilus): when an enclave is configured, the DECISION
-    // comes from the attested enclave, not the local strategy. The enclave's
-    // signed target weight drives the deterministic rebalancer, and its signature
-    // is carried into every tick PTB (rebalance + noop) to stamp on-chain.
-    // An attested vault that can't reach its enclave SKIPS the tick — it must
-    // never fall back to an unattested trade. When the on-chain gate requires
-    // attestation but env is missing, fail closed before any decision runs.
-    if (agent.requiresAttestation && !this.#enclaveConfigured()) {
-      throw new Error(
-        'vault requires enclave attestation but SYNAPSE_ENCLAVE_URL / SYNAPSE_ENCLAVE_OBJECT_ID are not configured',
-      );
-    }
-
     let decision: StrategyDecision;
     let attestation: RebalanceAttestation | undefined;
-    if (this.#enclaveConfigured()) {
+    if (agent.requiresAttestation) {
+      if (!this.#enclaveConfigured()) {
+        throw new Error(
+          'vault requires enclave attestation but SYNAPSE_ENCLAVE_URL / SYNAPSE_ENCLAVE_OBJECT_ID are not configured',
+        );
+      }
       const result = await this.#attestedDecision(input, agent.identity.strategyId);
       decision = result.decision;
       attestation = result.attestation;
@@ -649,10 +641,12 @@ export class VaultRuntime {
 
     // Dust rebalances at MM band edges can abort DeepBook with
     // EMinimumQuantityOutNotMet (abort 12). Skip or relax min_out on
-    // unattested ticks only — attested PTBs must match the enclave hash.
+    // unattested ticks only — attested PTBs must match the enclave hash
+    // (the enclave applies the same guards before signing).
     if (decision.kind === 'rebalance' && attestation === undefined) {
       decision = applyRebalanceTradeGuards(decision, holdings, {
         minTradeUsd: this.#config.minTradeUsd ?? 1,
+        relaxMinOutBelowUsd: 15,
       });
     }
 

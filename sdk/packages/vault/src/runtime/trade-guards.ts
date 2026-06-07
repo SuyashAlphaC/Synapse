@@ -36,7 +36,7 @@ export function applyRebalanceTradeGuards(
 ): StrategyDecision {
   if (decision.kind !== 'rebalance') return decision;
 
-  const relaxBelow = opts.relaxMinOutBelowUsd ?? 5;
+  const relaxBelow = opts.relaxMinOutBelowUsd ?? 15;
   const trades = decision.trades.map((trade) => {
     const usd = tradeNotionalUsd(trade, holdings);
     if (usd !== null && usd < relaxBelow && trade.minAmountOut > 1n) {

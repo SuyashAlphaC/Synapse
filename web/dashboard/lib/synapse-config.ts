@@ -159,6 +159,7 @@ export function synapseTarget(
     | 'deepbook_adapter'
     | 'strategy_registry',
   fn: string,
+  packageId: string = SYNAPSE_PACKAGE_ID,
 ): `${string}::${string}::${string}` {
-  return `${SYNAPSE_PACKAGE_ID}::${module}::${fn}` as `${string}::${string}::${string}`;
+  return `${packageId}::${module}::${fn}` as `${string}::${string}::${string}`;
 }

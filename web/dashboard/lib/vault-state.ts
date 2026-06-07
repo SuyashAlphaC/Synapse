@@ -60,6 +60,27 @@ export interface LiveBalance {
 export interface LiveVaultState {
   identity: LiveAgentIdentity;
   balances: LiveBalance[];
+  /** Package that minted this vault — owner PTBs must target this, not latest. */
+  mintPackageId: string;
+}
+
+/** Extract `0x…` package address from a fully-qualified Move type. */
+export function packageIdFromMoveType(fullType: string): string {
+  const pkg = fullType.split('::')[0];
+  if (!pkg?.startsWith('0x')) {
+    throw new Error(`Cannot parse package id from Move type: ${fullType}`);
+  }
+  return pkg;
+}
+
+/** True for canonical or padded-address `0x…::sui::SUI` type tags. */
+export function isNativeSuiCoinType(coinTypeTag: string): boolean {
+  const lower = coinTypeTag.toLowerCase();
+  if (lower === '0x2::sui::sui') return true;
+  const parts = lower.split('::');
+  if (parts.length !== 3 || parts[1] !== 'sui' || parts[2] !== 'sui') return false;
+  const addr = parts[0].startsWith('0x') ? parts[0].slice(2) : parts[0];
+  return addr.replace(/^0+/, '') === '2';
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +139,7 @@ export async function loadLiveVault({
     requiresAttestation,
   };
 
-  return { identity, balances };
+  return { identity, balances, mintPackageId: packageIdFromMoveType(moveContent.type) };
 }
 
 /**

@@ -22,6 +22,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { hmac } from '@noble/hashes/hmac.js';
 import { runStrategy } from './runner.js';
 import { serializeDecisionIntent } from './payload.js';
+import { applyRebalanceTradeGuards } from './trade-guards.js';
 
 hashes.sha256 = sha256;
 hashes.hmacSha256 = (key, msg) => hmac(sha256, key, msg);
@@ -65,7 +66,7 @@ app.post('/decide', async (req, res) => {
     }
 
     const input = JSON.parse(inputJson, reviveBigints);
-    const { decision } = await runStrategy({
+    let { decision } = await runStrategy({
       blobId,
       codeHashHex,
       network: network === 'mainnet' ? 'mainnet' : 'testnet',
@@ -74,6 +75,13 @@ app.post('/decide', async (req, res) => {
         ? { anthropicApiKey: anthropicApiKey.trim() }
         : {}),
     });
+
+    if (decision.kind === 'rebalance') {
+      decision = applyRebalanceTradeGuards(decision, input.holdings ?? [], {
+        minTradeUsd: 1,
+        relaxMinOutBelowUsd: 15,
+      });
+    }
 
     const decisionStr = JSON.stringify(decision, replaceBigints);
     const codeHash = Uint8Array.from(Buffer.from(codeHashHex, 'hex'));

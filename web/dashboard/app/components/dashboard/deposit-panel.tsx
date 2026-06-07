@@ -13,10 +13,13 @@ import { CodeTag } from '../ui/code-tag';
 import { Modal } from '../ui/modal';
 import { useToast } from '../ui/toast';
 import { synapseTarget, explorerTxUrl } from '@/lib/synapse-config';
+import { isNativeSuiCoinType } from '@/lib/vault-state';
 import { shortenAddress, shortenHash } from '@/lib/format';
 
 interface DepositPanelProps {
   vaultId: string;
+  /** Package that minted the vault — fund PTBs must use this package id. */
+  mintPackageId: string;
 }
 
 /**
@@ -31,7 +34,7 @@ interface DepositPanelProps {
  * and invalidates the vault query so balances update without a manual
  * refresh.
  */
-export function DepositPanel({ vaultId }: DepositPanelProps) {
+export function DepositPanel({ vaultId, mintPackageId }: DepositPanelProps) {
   const account = useCurrentAccount();
   const [open, setOpen] = useState(false);
 
@@ -67,7 +70,9 @@ export function DepositPanel({ vaultId }: DepositPanelProps) {
           </button>
         </div>
       </div>
-      {open && <DepositModal vaultId={vaultId} onClose={() => setOpen(false)} />}
+      {open && (
+        <DepositModal vaultId={vaultId} mintPackageId={mintPackageId} onClose={() => setOpen(false)} />
+      )}
     </>
   );
 }
@@ -81,11 +86,16 @@ interface CoinChoice {
   bestCoinBalance: bigint;
 }
 
+/** Leave headroom on SUI deposits so gas + split share one coin object safely. */
+const SUI_GAS_BUFFER_MIST = 500_000_000n;
+
 function DepositModal({
   vaultId,
+  mintPackageId,
   onClose,
 }: {
   vaultId: string;
+  mintPackageId: string;
   onClose: () => void;
 }) {
   const account = useCurrentAccount();
@@ -133,11 +143,19 @@ function DepositModal({
   }, [balancesQ.data]);
 
   const meta = metaQ.data ?? null;
-  const decimals = meta?.decimals ?? (pickedType === '0x2::sui::SUI' ? 9 : 6);
+  const isSui = pickedType !== null && isNativeSuiCoinType(pickedType);
+  const decimals = meta?.decimals ?? (isSui ? 9 : 6);
   const coins = coinsQ.data?.data ?? [];
   const best = coins
     .slice()
     .sort((a, b) => Number(BigInt(b.balance) - BigInt(a.balance)))[0];
+
+  const maxDepositAtomic =
+    best === undefined
+      ? 0n
+      : isSui && BigInt(best.balance) > SUI_GAS_BUFFER_MIST
+        ? BigInt(best.balance) - SUI_GAS_BUFFER_MIST
+        : BigInt(best.balance);
 
   const amount = parseAmount(amountInput, decimals);
   const valid =
@@ -145,7 +163,7 @@ function DepositModal({
     best !== undefined &&
     amount !== null &&
     amount > 0n &&
-    BigInt(best.balance) >= amount;
+    amount <= maxDepositAtomic;
 
   async function submit() {
     setError(null);
@@ -153,20 +171,27 @@ function DepositModal({
       setError('Pick a coin and a positive amount.');
       return;
     }
-    if (amount > BigInt(best.balance)) {
-      setError('Amount exceeds the largest coin object of this type. Try a smaller value or merge coins first.');
+    if (amount > maxDepositAtomic) {
+      setError(
+        isSui
+          ? 'Amount exceeds wallet SUI after reserving ~0.5 SUI for gas. Try a smaller value.'
+          : 'Amount exceeds the largest coin object of this type. Try a smaller value or merge coins first.',
+      );
       return;
     }
     try {
       const tx = new Transaction();
-      const sourceCoin = tx.object(best.coinObjectId);
-      // Split the desired amount out of the source coin. For SUI we could
-      // split from `tx.gas`, but using the explicit source coin makes the
-      // PTB work for arbitrary token types uniformly.
-      const [funded] = tx.splitCoins(sourceCoin, [amount]);
+      let funded;
+      if (isSui) {
+        // Split from gas coin — avoids object/gas collisions in single-coin wallets.
+        [funded] = tx.splitCoins(tx.gas, [amount]);
+      } else {
+        const sourceCoin = tx.object(best.coinObjectId);
+        [funded] = tx.splitCoins(sourceCoin, [amount]);
+      }
       if (!funded) throw new Error('splitCoins returned no coin');
       tx.moveCall({
-        target: synapseTarget('agent', 'fund'),
+        target: synapseTarget('agent', 'fund', mintPackageId),
         typeArguments: [pickedType],
         arguments: [tx.object(vaultId), funded],
       });
@@ -292,7 +317,7 @@ function DepositModal({
                   inputMode="decimal"
                   value={amountInput}
                   onChange={(e) => setAmountInput(e.target.value)}
-                  placeholder={`max ${best ? humanFromAtomic(BigInt(best.balance), decimals) : '?'}`}
+                  placeholder={`max ${best ? humanFromAtomic(maxDepositAtomic, decimals) : '?'}`}
                   className="rounded-sm border border-divider bg-paper-strong px-3 py-2 font-mono text-xs outline-none focus:border-ink"
                 />
                 <span className="font-mono text-[10px] text-ink-mute">
@@ -308,7 +333,7 @@ function DepositModal({
                       onClick={() =>
                         setAmountInput(
                           humanFromAtomic(
-                            (BigInt(best.balance) * BigInt(Math.round(frac * 1000))) / 1000n,
+                            (maxDepositAtomic * BigInt(Math.round(frac * 1000))) / 1000n,
                             decimals,
                           ),
                         )

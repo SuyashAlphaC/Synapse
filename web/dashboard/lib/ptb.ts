@@ -176,10 +176,11 @@ export function buildSetWalrusConsentPTB(args: {
 export function buildSetRequiresAttestationPTB(args: {
   agentId: string;
   required: boolean;
+  packageId?: string;
 }): Transaction {
   const tx = new Transaction();
   tx.moveCall({
-    target: synapseTarget('agent', 'set_requires_attestation'),
+    target: synapseTarget('agent', 'set_requires_attestation', args.packageId),
     arguments: [tx.object(args.agentId), tx.pure.bool(args.required)],
   });
   return tx;
