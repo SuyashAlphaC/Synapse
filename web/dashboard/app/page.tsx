@@ -334,7 +334,7 @@ function FooterStrip() {
           © {new Date().getFullYear()} Synapse Labs · Built for Sui Overflow 2026
         </span>
         <span className="flex items-center gap-4 font-mono">
-          <a href="#docs" className="hover:text-ink">
+          <a href="https://github.com/SuyashAlphaC/Synapse" className="hover:text-ink">
             Docs
           </a>
           <a href="https://github.com/MystenLabs/MemWal" className="hover:text-ink">
