@@ -8,7 +8,7 @@
 | **Repo** | [github.com/SuyashAlphaC/Synapse](https://github.com/SuyashAlphaC/Synapse) |
 | **Live demo** | [synapse-kappa-sable.vercel.app](https://synapse-kappa-sable.vercel.app/) |
 | **Demo video** | [YouTube (~7 min)](https://www.youtube.com/watch?v=R2g5HCLmApI) |
-| **Attestation addendum** | _~90 sec clip — paste YouTube URL here after upload (see [Nautilus attestation proof](#nautilus-attestation-proof) below)_ |
+| **Attestation addendum** | [YouTube (~90 sec)](https://www.youtube.com/watch?v=GbzpgDedcWU) — Policy, hosted runtime, Suiscan `DecisionAttestedV2` + swap |
 | **Memory inspector** | [synapse-kappa-sable.vercel.app/inspector](https://synapse-kappa-sable.vercel.app/inspector) (read-only, no wallet) |
 | **Walrus Site** | `0x55c33a39757a4487ca8cebdaffd5b7b9f9ba9601456a82ef5f031c689ae0001a` |
 | **Move package (v6)** | `0xe95241a800a97841e7676437cc83c9761e6d30e42ab8bdd590d49fd40e22a797` |
@@ -99,7 +99,7 @@ Strategy bundle (Walrus): `2UIzJtYptwlLqh8lzotjd046DaTFa4th3By7UXV4VLs` · Messa
 
 ## Nautilus attestation proof
 
-The main demo video focuses on Walrus memory, artifacts, and coordination. **Attestation is opt-in per vault** and verified on-chain — use this section (or the ~90 sec addendum once uploaded) to verify it in under a minute.
+The main demo video focuses on Walrus memory, artifacts, and coordination. **Attestation is opt-in per vault** and verified on-chain — watch the [attestation addendum (~90 sec)](https://www.youtube.com/watch?v=GbzpgDedcWU) or follow the steps below.
 
 ### What attestation proves
 
@@ -116,22 +116,22 @@ Honest scope: this demo uses a **dev enclave** (documented in [enclave/README.md
 
 ### Verify on-chain (no wallet)
 
-Open the proof transaction on Suiscan and confirm **`DecisionAttested`** / swap events in **one** PTB:
+Best proof — **attestation + swap in one PTB** ([`2hU2arKC…`](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH)): open Suiscan → **Events** → `DecisionAttestedV2` then `SwapEvent`. [SuiVision Events tab](https://testnet.suivision.xyz/txblock/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH).
 
-**[suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe](https://suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe)**
+Standalone attestation stamp: [tx `7TLfyS6a…`](https://suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe) (`DecisionAttested` only).
 
 Enclave object: [`0x2e170c4465913426e8a1a934fac1cc93b863dd28205778bf2d3cff11deeaf4be`](https://suiscan.xyz/testnet/object/0x2e170c4465913426e8a1a934fac1cc93b863dd28205778bf2d3cff11deeaf4be)
 
 ### Attestation addendum video (~90 sec)
 
-Record and upload a short supplement showing steps 3–4 above plus the Suiscan event panel. Paste the URL in the header table when live. Suggested title: *Synapse Vault — Nautilus attestation proof (testnet)*.
+**[youtube.com/watch?v=GbzpgDedcWU](https://www.youtube.com/watch?v=GbzpgDedcWU)** — dashboard Policy + Hosted runtime + Suiscan event walkthrough. Companion to the [main demo](https://www.youtube.com/watch?v=R2g5HCLmApI).
 
 ---
 
 ## 60-second judge walkthrough
 
 1. **Watch** the [demo video](https://www.youtube.com/watch?v=R2g5HCLmApI) — problem, live vault audit timeline, Walrus artifacts, MemWal recall, inspector, coordination.
-2. **Attestation** — main video does not walk through Nautilus; verify via [Nautilus attestation proof](#nautilus-attestation-proof) (Suiscan tx + dashboard Policy / Hosted runtime) or the ~90 sec addendum once uploaded.
+2. **Attestation** — [addendum (~90 sec)](https://www.youtube.com/watch?v=GbzpgDedcWU) · [Suiscan proof tx](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH) · [details](#nautilus-attestation-proof)
 3. **Inspect on-chain** (no wallet): [synapse-kappa-sable.vercel.app/inspector](https://synapse-kappa-sable.vercel.app/inspector) → paste `0x347dd8d77d137042bdae4bc847e4dda798529bd0bf934115ca0395b6afec65e8` → audit timeline + Walrus artifact links.
 4. **Verify txs** — rebalance [`2hU2arKC…`](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH) · cross-agent read [`AQQZhQRQ…`](https://suiscan.xyz/testnet/tx/AQQZhQRQZ8vK1Y7zPrxaGT7MS9cRkVAoXLYHvSSEDzRm) · attestation [`7TLfyS6a…`](https://suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe).
 5. **Explore dashboard** — connect wallet at [synapse-kappa-sable.vercel.app/dashboard](https://synapse-kappa-sable.vercel.app/dashboard) for owned vaults, MemWal recall panel, artifacts, and policy controls; or [mint](https://synapse-kappa-sable.vercel.app/mint) a new vault.

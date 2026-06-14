@@ -10,6 +10,7 @@
 <p align="center">
   <a href="https://synapse-kappa-sable.vercel.app">Live demo</a> ·
   <a href="https://www.youtube.com/watch?v=R2g5HCLmApI">Demo video</a> ·
+  <a href="https://www.youtube.com/watch?v=GbzpgDedcWU">Attestation</a> ·
   <a href="https://github.com/SuyashAlphaC/Synapse">Code</a> ·
   Sui Overflow 2026 · <strong>Walrus Track</strong>
 </p>
@@ -20,6 +21,7 @@ Built for **Sui Overflow 2026 — Walrus Track**.
 
 - **Judge summary:** [SUBMISSION.md](./SUBMISSION.md) — one-page executive brief
 - **Demo video:** [YouTube (~7 min)](https://www.youtube.com/watch?v=R2g5HCLmApI) — live vaults, Walrus artifacts, MemWal recall, inspector, coordination
+- **Attestation addendum:** [YouTube (~90 sec)](https://www.youtube.com/watch?v=GbzpgDedcWU) — Nautilus Policy, hosted runtime, Suiscan proof
 - **Code:** this repo (Move + TypeScript SDK + Next.js dashboard + headless runtime)
 - **Marketing site (Walrus Sites, testnet):** Site object `0x55c33a39757a4487ca8cebdaffd5b7b9f9ba9601456a82ef5f031c689ae0001a`
 
@@ -30,7 +32,7 @@ Built for **Sui Overflow 2026 — Walrus Track**.
    - `0x347dd8d77d137042bdae4bc847e4dda798529bd0bf934115ca0395b6afec65e8` (primary demo vault — rebalance + messaging)
    - `0xbefc3142c5138e07655485a984c031e18494f71279486b0dd01e949309268cf4` (second hosted vault)
 3. **Verify on-chain:** cross-agent read [`AQQZhQRQ…`](https://suiscan.xyz/testnet/tx/AQQZhQRQZ8vK1Y7zPrxaGT7MS9cRkVAoXLYHvSSEDzRm) · Nautilus attestation [`7TLfyS6a…`](https://suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe) · live rebalance [`2hU2arKC…`](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH)
-4. **Nautilus attestation** — not in the main video; see [SUBMISSION.md § Nautilus attestation proof](./SUBMISSION.md#nautilus-attestation-proof) (+ ~90 sec addendum when uploaded)
+4. **Nautilus attestation** — [addendum video (~90 sec)](https://www.youtube.com/watch?v=GbzpgDedcWU) · proof tx [`2hU2arKC…`](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH)
 
 Full walkthrough and proof table: **[SUBMISSION.md](./SUBMISSION.md)**.
 
