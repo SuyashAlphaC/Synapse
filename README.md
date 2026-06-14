@@ -9,6 +9,7 @@
 
 <p align="center">
   <a href="https://synapse-kappa-sable.vercel.app">Live demo</a> ·
+  <a href="https://www.youtube.com/watch?v=R2g5HCLmApI">Demo video</a> ·
   <a href="https://github.com/SuyashAlphaC/Synapse">Code</a> ·
   Sui Overflow 2026 · <strong>Walrus Track</strong>
 </p>
@@ -18,8 +19,20 @@
 Built for **Sui Overflow 2026 — Walrus Track**.
 
 - **Judge summary:** [SUBMISSION.md](./SUBMISSION.md) — one-page executive brief
+- **Demo video:** [YouTube (~7 min)](https://www.youtube.com/watch?v=R2g5HCLmApI) — live vaults, Walrus artifacts, MemWal recall, inspector, coordination
 - **Code:** this repo (Move + TypeScript SDK + Next.js dashboard + headless runtime)
 - **Marketing site (Walrus Sites, testnet):** Site object `0x55c33a39757a4487ca8cebdaffd5b7b9f9ba9601456a82ef5f031c689ae0001a`
+
+### Judge quickstart (60 seconds)
+
+1. **Watch** the [demo video](https://www.youtube.com/watch?v=R2g5HCLmApI) (problem → live vault → Walrus artifact → MemWal).
+2. **Inspect** a live testnet vault (no wallet required): open [synapse-kappa-sable.vercel.app/inspector](https://synapse-kappa-sable.vercel.app/inspector) and paste:
+   - `0x347dd8d77d137042bdae4bc847e4dda798529bd0bf934115ca0395b6afec65e8` (primary demo vault — rebalance + messaging)
+   - `0xbefc3142c5138e07655485a984c031e18494f71279486b0dd01e949309268cf4` (second hosted vault)
+3. **Verify on-chain:** cross-agent read [`AQQZhQRQ…`](https://suiscan.xyz/testnet/tx/AQQZhQRQZ8vK1Y7zPrxaGT7MS9cRkVAoXLYHvSSEDzRm) · Nautilus attestation [`7TLfyS6a…`](https://suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe) · live rebalance [`2hU2arKC…`](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH)
+4. **Nautilus attestation** — not in the main video; see [SUBMISSION.md § Nautilus attestation proof](./SUBMISSION.md#nautilus-attestation-proof) (+ ~90 sec addendum when uploaded)
+
+Full walkthrough and proof table: **[SUBMISSION.md](./SUBMISSION.md)**.
 
 ---
 
@@ -37,7 +50,7 @@ The Walrus track asks for **working systems**, not demos: agents that **remember
 | "AI agent" without proof | Trust the operator | **Move policy gates** (only the VM moves money) + optional **Nautilus attestation** (enclave signs decision; Move verifies before swap) |
 | Dev tooling as an afterthought | README snippet | **`@synapse-core/adapter-langgraph`**, Walrus strategy publisher, hosted runtime on AWS Fargate |
 
-**Judge checklist in one minute:** mint a vault → watch ticks land on-chain → open the audit timeline → query MemWal in the dashboard → see cross-agent reads attested → decrypt a Seal artifact → inspect a Walrus Sites front door. All in this repo, all on testnet.
+**Judge checklist in one minute:** [demo video](https://www.youtube.com/watch?v=R2g5HCLmApI) → [memory inspector](https://synapse-kappa-sable.vercel.app/inspector) with a live vault ID → verify on-chain txs in [SUBMISSION.md](./SUBMISSION.md). Mint path, MemWal recall, Seal decrypt, and Walrus Sites are all in-repo on testnet.
 
 ---
 

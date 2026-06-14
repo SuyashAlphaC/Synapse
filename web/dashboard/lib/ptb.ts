@@ -172,15 +172,19 @@ export function buildSetWalrusConsentPTB(args: {
  * Owner-only: require (or stop requiring) Nautilus enclave attestation before
  * this vault may spend. When enabled, the chain aborts any trade that wasn't
  * preceded by a valid enclave-signed decision in the same epoch.
+ *
+ * Always targets the latest `SYNAPSE_PACKAGE_ID`. The function was added in
+ * package v4; vaults minted under v1–v3 still accept the call because
+ * `AgentIdentity` layout is upgrade-compatible and attestation state lives in
+ * a dynamic field keyed by the v4+ package namespace.
  */
 export function buildSetRequiresAttestationPTB(args: {
   agentId: string;
   required: boolean;
-  packageId?: string;
 }): Transaction {
   const tx = new Transaction();
   tx.moveCall({
-    target: synapseTarget('agent', 'set_requires_attestation', args.packageId),
+    target: synapseTarget('agent', 'set_requires_attestation'),
     arguments: [tx.object(args.agentId), tx.pure.bool(args.required)],
   });
   return tx;

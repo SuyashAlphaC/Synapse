@@ -7,6 +7,9 @@
 | **Team** | Synapse Labs |
 | **Repo** | [github.com/SuyashAlphaC/Synapse](https://github.com/SuyashAlphaC/Synapse) |
 | **Live demo** | [synapse-kappa-sable.vercel.app](https://synapse-kappa-sable.vercel.app/) |
+| **Demo video** | [YouTube (~7 min)](https://www.youtube.com/watch?v=R2g5HCLmApI) |
+| **Attestation addendum** | _~90 sec clip — paste YouTube URL here after upload (see [Nautilus attestation proof](#nautilus-attestation-proof) below)_ |
+| **Memory inspector** | [synapse-kappa-sable.vercel.app/inspector](https://synapse-kappa-sable.vercel.app/inspector) (read-only, no wallet) |
 | **Walrus Site** | `0x55c33a39757a4487ca8cebdaffd5b7b9f9ba9601456a82ef5f031c689ae0001a` |
 | **Move package (v6)** | `0xe95241a800a97841e7676437cc83c9761e6d30e42ab8bdd590d49fd40e22a797` |
 
@@ -73,23 +76,66 @@ Implementation: `sdk/packages/vault/src/runtime/runtime.ts`
 
 ## Live proofs (testnet)
 
+### Hosted demo vaults (AWS Fargate runtime, EventBridge ticks)
+
+| Vault | AgentIdentity | Notes |
+|---|---|---|
+| Primary | [`0x347dd8d7…ec65e8`](https://suiscan.xyz/testnet/object/0x347dd8d77d137042bdae4bc847e4dda798529bd0bf934115ca0395b6afec65e8) | MM Inventory v2 · attestation enabled · rebalance + messaging live |
+| Secondary | [`0xbefc3142…68cf4`](https://suiscan.xyz/testnet/object/0xbefc3142c5138e07655485a984c031e18494f71279486b0dd01e949309268cf4) | Same strategy · shared messaging channel |
+
+Strategy bundle (Walrus): `2UIzJtYptwlLqh8lzotjd046DaTFa4th3By7UXV4VLs` · Messaging channel: `0xe0177c44cb354ecbb08788ef8fd57992c2fb8dfc7e600bbc868cdbc1caef1b9d` · Nautilus enclave object: `0x2e170c4465913426e8a1a934fac1cc93b863dd28205778bf2d3cff11deeaf4be`
+
+### On-chain proof transactions
+
 | Proof | Reference |
 |---|---|
-| Cross-agent MemWal read | tx `AQQZhQRQZ8vK1Y7zPrxaGT7MS9cRkVAoXLYHvSSEDzRm` |
-| Nautilus decision attestation | tx `7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe` |
+| Live rebalance + coordination signal | [tx `2hU2arKC…`](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH) (signal digest `89dGyHaVfJQpzaXbHaHvNzGKSVzLWKcM76WuyTa5rftW`) |
+| Cross-agent MemWal read | [tx `AQQZhQRQ…`](https://suiscan.xyz/testnet/tx/AQQZhQRQZ8vK1Y7zPrxaGT7MS9cRkVAoXLYHvSSEDzRm) |
+| Nautilus decision attestation | [tx `7TLfyS6a…`](https://suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe) (`DecisionAttested`) |
 | Seal policy package | `0x14a1cbc600affc135510237ad779f19f924dfb2a6ee068b9b85f2c59d69bc91a` |
 | Messaging end-to-end | `examples/messaging-demo/` |
 
 ---
 
+## Nautilus attestation proof
+
+The main demo video focuses on Walrus memory, artifacts, and coordination. **Attestation is opt-in per vault** and verified on-chain — use this section (or the ~90 sec addendum once uploaded) to verify it in under a minute.
+
+### What attestation proves
+
+The enclave signs `(code_hash ‖ decision_hash ‖ inputs_hash)`. Move `decision_attestation::attest_decision_v2` verifies the signature **in the same PTB** before `wallet::spend` allows a swap. If `requires_attestation` is on and no valid stamp exists this epoch, the PTB aborts with `ENotAttested`.
+
+Honest scope: this demo uses a **dev enclave** (documented in [enclave/README.md](./enclave/README.md)). Production Nitro/Oyster path is documented; not the default hosted deployment yet.
+
+### Verify in the dashboard (wallet required — vault owner)
+
+1. Open [synapse-kappa-sable.vercel.app/dashboard](https://synapse-kappa-sable.vercel.app/dashboard) and connect the owner wallet.
+2. Select vault **`0x347dd8d77d137042bdae4bc847e4dda798529bd0bf934115ca0395b6afec65e8`**.
+3. **Policy bounds** → **Attested execution** should read **On** (“Every spend aborts unless a valid Nautilus enclave decision was attested this epoch”).
+4. **Hosted runtime** → **Nautilus attestation** section should show **`nautilus ✓`** with enclave object **`0x2e170c4465913426e8a1a934fac1cc93b863dd28205778bf2d3cff11deeaf4be`**.
+
+### Verify on-chain (no wallet)
+
+Open the proof transaction on Suiscan and confirm **`DecisionAttested`** / swap events in **one** PTB:
+
+**[suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe](https://suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe)**
+
+Enclave object: [`0x2e170c4465913426e8a1a934fac1cc93b863dd28205778bf2d3cff11deeaf4be`](https://suiscan.xyz/testnet/object/0x2e170c4465913426e8a1a934fac1cc93b863dd28205778bf2d3cff11deeaf4be)
+
+### Attestation addendum video (~90 sec)
+
+Record and upload a short supplement showing steps 3–4 above plus the Suiscan event panel. Paste the URL in the header table when live. Suggested title: *Synapse Vault — Nautilus attestation proof (testnet)*.
+
+---
+
 ## 60-second judge walkthrough
 
-1. Open **[synapse-kappa-sable.vercel.app](https://synapse-kappa-sable.vercel.app/)** → marketplace or an existing vault.
-2. **Audit timeline** — on-chain ticks (swap, noop, artifact publish, coordination).
-3. **MemWal recall panel** — semantic query → decrypted hits → Walrus blob links.
-4. **Artifacts panel** — fetch Walrus markdown; SHA-256 verified against chain.
-5. **Coordination** — cross-agent reads / messaging channel status.
-6. Clone repo → `npm install` → `cd web/dashboard && npm run dev` for full mint path.
+1. **Watch** the [demo video](https://www.youtube.com/watch?v=R2g5HCLmApI) — problem, live vault audit timeline, Walrus artifacts, MemWal recall, inspector, coordination.
+2. **Attestation** — main video does not walk through Nautilus; verify via [Nautilus attestation proof](#nautilus-attestation-proof) (Suiscan tx + dashboard Policy / Hosted runtime) or the ~90 sec addendum once uploaded.
+3. **Inspect on-chain** (no wallet): [synapse-kappa-sable.vercel.app/inspector](https://synapse-kappa-sable.vercel.app/inspector) → paste `0x347dd8d77d137042bdae4bc847e4dda798529bd0bf934115ca0395b6afec65e8` → audit timeline + Walrus artifact links.
+4. **Verify txs** — rebalance [`2hU2arKC…`](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH) · cross-agent read [`AQQZhQRQ…`](https://suiscan.xyz/testnet/tx/AQQZhQRQZ8vK1Y7zPrxaGT7MS9cRkVAoXLYHvSSEDzRm) · attestation [`7TLfyS6a…`](https://suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe).
+5. **Explore dashboard** — connect wallet at [synapse-kappa-sable.vercel.app/dashboard](https://synapse-kappa-sable.vercel.app/dashboard) for owned vaults, MemWal recall panel, artifacts, and policy controls; or [mint](https://synapse-kappa-sable.vercel.app/mint) a new vault.
+6. **Clone locally** — `npm install` → `cd web/dashboard && npm run dev` for full mint path.
 
 ---
 
