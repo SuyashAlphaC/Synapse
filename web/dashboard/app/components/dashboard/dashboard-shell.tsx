@@ -76,6 +76,7 @@ import { useLiveVault } from '../../hooks/use-live-vault';
 import { useLiveNavHistory } from '../../hooks/use-live-nav-history';
 import { useStrategies } from '../../hooks/use-strategies';
 import { requiresWalrusConsent, requiresAnthropicApiKey } from '@/lib/strategies';
+import { VaultExpiredBanner } from './vault-expired-banner';
 
 interface DashboardShellProps {
   /**
@@ -205,6 +206,15 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
             authority. Deposits, holdings reads, and audit history remain queryable; mutations
             abort at the Move VM.
           </span>
+        </div>
+      )}
+
+      {live && !live.identity.revoked && (
+        <div className="mt-6">
+          <VaultExpiredBanner
+            currentEpoch={live.currentEpoch}
+            expiryEpoch={live.identity.expiryEpoch}
+          />
         </div>
       )}
 

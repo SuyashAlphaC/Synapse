@@ -6,6 +6,7 @@ import { useSuiClient } from '@mysten/dapp-kit';
 import type { TimelineEntry } from '@/lib/sample-data';
 import { loadLiveTimeline } from '@/lib/live-events';
 import { formatUsd, shortenHash, timeAgo } from '@/lib/format';
+import { explorerTxUrl } from '@/lib/synapse-config';
 import { CodeTag } from '../ui/code-tag';
 import { useToast } from '../ui/toast';
 
@@ -226,13 +227,24 @@ function Entry({ entry, delay }: { entry: TimelineEntry; delay: number }) {
         <p className="mt-0.5 truncate font-display text-sm font-medium text-ink">
           {entry.description}
         </p>
-        <p className="mt-0.5 flex items-center gap-2 font-mono text-[10px] text-ink-mute">
-          <button
-            onClick={copyTx}
-            className="transition-colors hover:text-ink"
-            title="Click to copy transaction digest"
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10px] text-ink-mute">
+          <a
+            href={explorerTxUrl(entry.txDigest)}
+            target="_blank"
+            rel="noreferrer"
+            className="text-accent-blue underline decoration-accent-blue/40 underline-offset-2 transition-colors hover:text-ink hover:decoration-ink"
+            title="Open transaction on Suiscan"
           >
-            tx {shortenHash(entry.txDigest)} {copied ? '✓ copied' : ''}
+            tx {shortenHash(entry.txDigest)} ↗
+          </a>
+          <button
+            type="button"
+            onClick={copyTx}
+            className="rounded-sm px-1 transition-colors hover:bg-paper hover:text-ink"
+            title="Copy transaction digest"
+            aria-label="Copy transaction digest"
+          >
+            {copied ? 'copied ✓' : 'copy'}
           </button>
           {entry.walrusBlobId && (
             <>
