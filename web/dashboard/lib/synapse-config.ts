@@ -86,6 +86,10 @@ export const SYNAPSE_TESTNET_ENCLAVE_URL =
 export const SYNAPSE_ENCLAVE_DOCS_URL =
   'https://github.com/SuyashAlphaC/Synapse/blob/main/enclave/README.md';
 
+/** Operator runbook — session gas, operational budget, expiry, CloudWatch. */
+export const SYNAPSE_OPS_RUNBOOK_URL =
+  'https://github.com/SuyashAlphaC/Synapse/blob/main/docs/operations/RUNBOOK.md';
+
 /**
  * MemWal Move contract IDs (per network). Sourced from
  * https://docs.memwal.ai/contract/overview. The dashboard uses these

@@ -143,7 +143,7 @@ Enclave object: [`0x2e170c4465913426e8a1a934fac1cc93b863dd28205778bf2d3cff11deea
 
 Treasury safety does **not** depend on Walrus or MemWal honesty — only on Move policy gates. Walrus provides **durability, portability, and audit integrity** (hash on-chain). Full analysis: **[THREAT_MODEL.md](./THREAT_MODEL.md)**.
 
-Honest gaps: messaging requires channel MemberCap provisioning; attestation proof uses a dev enclave (production Nitro/Oyster documented); external audit before mainnet; unattended production requires monitoring session gas and operational budget — the dashboard shows a **runtime gas** warning when ticks are likely failing.
+Honest gaps: messaging requires channel MemberCap provisioning; attestation proof uses a dev enclave (production Nitro/Oyster documented); external audit before mainnet; unattended production requires monitoring session gas and operational budget — the dashboard shows **runtime gas** / **expired** banners when ticks are likely failing, with a link to the [operations runbook](./docs/operations/RUNBOOK.md). CloudWatch **metric alarms** and an automated gas keeper are documented as roadmap items, not shipped for this submission.
 
 ---
 
@@ -151,7 +151,9 @@ Honest gaps: messaging requires channel MemberCap provisioning; attestation proo
 
 | Doc | Audience |
 |---|---|
-| [README.md](./README.md) | Architecture, runbook, requirement matrix |
+| [README.md](./README.md) | Architecture, requirement matrix, honest status |
+| [docs/operations/RUNBOOK.md](./docs/operations/RUNBOOK.md) | Operators — session gas, op budget, expiry, CloudWatch |
+| [infrastructure/aws/README.md](./infrastructure/aws/README.md) | CDK deploy, Fargate hosted runtime |
 | [THREAT_MODEL.md](./THREAT_MODEL.md) | Judges, compliance, auditors |
 | [AUDIT.md](./AUDIT.md) | Internal audit + remediation |
 | [enclave/README.md](./enclave/README.md) | Nautilus deployment |

@@ -20,6 +20,7 @@
 Built for **Sui Overflow 2026 — Walrus Track**.
 
 - **Judge summary:** [SUBMISSION.md](./SUBMISSION.md) — one-page executive brief
+- **Operations runbook:** [docs/operations/RUNBOOK.md](./docs/operations/RUNBOOK.md) — session gas, operational budget, expiry, CloudWatch
 - **Demo video:** [YouTube (~7 min)](https://www.youtube.com/watch?v=R2g5HCLmApI) — live vaults, Walrus artifacts, MemWal recall, inspector, coordination
 - **Attestation addendum:** [YouTube (~90 sec)](https://www.youtube.com/watch?v=GbzpgDedcWU) — Nautilus Policy, hosted runtime, Suiscan proof
 - **Code:** this repo (Move + TypeScript SDK + Next.js dashboard + headless runtime)
@@ -302,7 +303,7 @@ CI                                   Move + SDK + dashboard + Docker + secret-le
 | **Mainnet** | Testnet only; deliberate cutover (package publish, DEEP fees, external audit). |
 | **DEEP on mainnet** | Runtime fails fast on mainnet until treasury holds DEEP for DeepBook fees. |
 | **Third-party audit** | Internal audit (`AUDIT.md`) complete; external audit before mainnet. |
-| **Session gas / operational budget** | Hosted ticks stall if the session wallet is below ~0.02–0.03 SUI or the per-epoch operational pull cap is exhausted. The dashboard surfaces a **runtime gas** banner; production needs CloudWatch alarms + higher mint seed / op cap defaults. |
+| **Session gas / operational budget** | Hosted ticks stall if the session wallet is below ~0.02–0.03 SUI or the per-epoch operational pull cap is exhausted. The dashboard surfaces **runtime gas** / **expired** banners with a link to the [operations runbook](./docs/operations/RUNBOOK.md). Optional `SYNAPSE_ALERT_WEBHOOK_URL` alerts on crash/max failures; **CloudWatch metric alarms and automated gas keeper are not shipped** — see runbook § Alerting. |
 
 ---
 
@@ -327,5 +328,6 @@ infrastructure/aws       CDK + Fargate hosted runtime
 scripts/                 provision-messaging-channel, backtests, bundler
 THREAT_MODEL.md          Threat model for judges and auditors
 SUBMISSION.md            Walrus Track one-page executive summary
+docs/operations/       Operator runbook (hosted runtime troubleshooting)
 AUDIT.md                 Internal security audit + remediation log
 ```

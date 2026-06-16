@@ -2,6 +2,7 @@
 
 import { CodeTag } from '../ui/code-tag';
 import { isVaultExpired } from '@/lib/vault-expiry';
+import { SYNAPSE_OPS_RUNBOOK_URL } from '@/lib/synapse-config';
 
 interface VaultExpiredBannerProps {
   currentEpoch: bigint;
@@ -41,7 +42,15 @@ export function VaultExpiredBanner({
           </>
         ) : (
           <> Historical audit events remain queryable below.</>
-        )}
+        )}{' '}
+        <a
+          href={SYNAPSE_OPS_RUNBOOK_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="font-mono text-[11px] text-accent-blue hover:underline"
+        >
+          Runbook ↗
+        </a>
       </span>
     </div>
   );

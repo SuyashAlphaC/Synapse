@@ -11,6 +11,7 @@ import {
   sessionOperatingMinMist,
 } from '@/lib/session-gas';
 import { isVaultExpired } from '@/lib/vault-expiry';
+import { SYNAPSE_OPS_RUNBOOK_URL } from '@/lib/synapse-config';
 
 interface VaultSessionGasBannerProps {
   live: PricedVaultState;
@@ -107,6 +108,18 @@ export function VaultSessionGasBanner({
             )}
           </p>
         )}
+
+        <p className="font-mono text-[11px] text-ink-mute">
+          <a
+            href={SYNAPSE_OPS_RUNBOOK_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="text-accent-blue hover:underline"
+          >
+            Operations runbook ↗
+          </a>
+          {' — decision tree, CloudWatch commands, pre-flight checklist.'}
+        </p>
       </div>
     </div>
   );

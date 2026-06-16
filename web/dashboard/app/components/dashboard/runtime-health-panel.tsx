@@ -4,7 +4,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSuiClient } from '@mysten/dapp-kit';
 import { useQuery } from '@tanstack/react-query';
 import { CodeTag } from '../ui/code-tag';
-import { SYNAPSE_PACKAGE_ID, SYNAPSE_PACKAGE_HISTORY, explorerTxUrl } from '@/lib/synapse-config';
+import {
+  SYNAPSE_OPS_RUNBOOK_URL,
+  SYNAPSE_PACKAGE_ID,
+  SYNAPSE_PACKAGE_HISTORY,
+  explorerTxUrl,
+} from '@/lib/synapse-config';
 import { shortenHash, timeAgo } from '@/lib/format';
 
 interface RuntimeHealthPanelProps {
@@ -171,7 +176,15 @@ export function RuntimeHealthPanel({ vaultId }: RuntimeHealthPanelProps) {
           className="mt-3 rounded-sm border-l-2 bg-paper p-3 font-mono text-[11px] text-ink-soft"
           style={{ borderColor: status.accent }}
         >
-          {status.hint}
+          {status.hint}{' '}
+          <a
+            href={SYNAPSE_OPS_RUNBOOK_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="text-accent-blue hover:underline"
+          >
+            Operations runbook ↗
+          </a>
         </p>
       )}
     </div>

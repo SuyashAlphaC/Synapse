@@ -156,6 +156,9 @@ On `/dashboard/<vaultId>`, open **Hosted runtime**, upload the session `.key`, c
 
 ## Operations
 
+**Full troubleshooting (decision tree, session gas chicken-and-egg, pre-flight checklist):**
+[docs/operations/RUNBOOK.md](../../docs/operations/RUNBOOK.md)
+
 | Task | Command |
 |---|---|
 | View runtime logs | `aws logs tail /synapse/vault/<short-vault> --follow` |
@@ -197,27 +200,24 @@ differ.
 
 ## Troubleshooting
 
-**`Agent stalled · 23m since last tick`** in the dashboard
+See **[docs/operations/RUNBOOK.md](../../docs/operations/RUNBOOK.md)** for the full decision tree. Quick reference:
 
-Check the Fargate task logs:
+**`Agent stalled` / `runtime gas` banner**
 
 ```bash
 aws logs tail /synapse/vault/<short-vault> --since 1h
 ```
 
-Common causes:
-- Session key out of gas — fund the session address with ~0.02 SUI
-- Vault revoked — strategy aborts at `assert_can_act`; revocation is
-  intentional behavior
-- DeepBookV3 pool unhealthy / no liquidity for the trade size — swap
-  reverts; tick records noop + emits the error in CloudWatch
+| Cause | Fix |
+|-------|-----|
+| Session gas too low for ticks or `pull_operational_funds` | Dashboard **Fund session** (≥ 0.1 SUI) — see runbook §3.2 |
+| Operational budget exhausted this epoch | Policy → Operational budget → raise cap — runbook §3.3 |
+| Vault expired | Policy → Expiry → Extend — runbook §3.1 |
+| Vault revoked | Intentional kill switch |
 
-**`Agent offline · no ticks`** in the dashboard
+**`Agent offline · no ticks`**
 
-Confirm the EventBridge rule is enabled and the Fargate task definition
-references the correct secret ARNs. If the Docker build failed during
-`cdk deploy`, fix the build error (most often a workspace dep missing
-in `Dockerfile`'s copy block) and re-deploy.
+Confirm EventBridge rule is **ENABLED** and secrets ARNs match. Optional webhook: set `SYNAPSE_ALERT_WEBHOOK_URL` on the task definition ([runbook § Alerting](../../docs/operations/RUNBOOK.md#alerting-what-exists-vs-planned)).
 
 **Image build failures during `cdk deploy`**
 
