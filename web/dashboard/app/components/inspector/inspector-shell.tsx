@@ -13,6 +13,7 @@ import { ArtifactsPanel } from '../dashboard/artifacts-panel';
 import { AuditTimeline } from '../dashboard/audit-timeline';
 import { PolicyPanel } from '../dashboard/policy-panel';
 import { VaultExpiredBanner } from '../dashboard/vault-expired-banner';
+import { VaultSessionGasBanner } from '../dashboard/vault-session-gas-banner';
 import { explorerObjectUrl } from '@/lib/synapse-config';
 import { formatUsd, shortenHash } from '@/lib/format';
 
@@ -176,11 +177,14 @@ export function InspectorShell() {
       </section>
 
       {active && vaultQuery.data && !vaultQuery.data.identity.revoked && (
-        <VaultExpiredBanner
-          currentEpoch={vaultQuery.data.currentEpoch}
-          expiryEpoch={vaultQuery.data.identity.expiryEpoch}
-          showExtendHint={false}
-        />
+        <div className="space-y-4">
+          <VaultExpiredBanner
+            currentEpoch={vaultQuery.data.currentEpoch}
+            expiryEpoch={vaultQuery.data.identity.expiryEpoch}
+            showExtendHint={false}
+          />
+          <VaultSessionGasBanner live={vaultQuery.data} showOperatorHints={false} />
+        </div>
       )}
 
       {active && (

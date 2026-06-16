@@ -17,6 +17,8 @@ export interface PricedHolding extends LiveBalance {
 export interface PricedVaultState extends LiveVaultState {
   /** Sui system epoch at fetch time — used for expiry banners. */
   currentEpoch: bigint;
+  /** Session key address SUI balance (gas for ticks). */
+  sessionBalanceMist: bigint;
   pricedHoldings: PricedHolding[];
   navUsd: number;
   /** USD price the spend cap is interpreted against. */
@@ -53,9 +55,15 @@ export function useLiveVault(
     queryKey: ['synapse-vault', vaultId],
     queryFn: async ({ signal }) => {
       if (!vaultId) return null;
-      const [state, systemState] = await Promise.all([
-        loadLiveVault({ client, vaultId }),
+      const state = await loadLiveVault({ client, vaultId });
+      const [systemState, sessionBalance] = await Promise.all([
         client.getLatestSuiSystemState(),
+        state.identity.sessionAddr
+          ? client
+              .getBalance({ owner: state.identity.sessionAddr })
+              .then((r) => BigInt(r.totalBalance))
+              .catch(() => 0n)
+          : Promise.resolve(0n),
       ]);
       const currentEpoch = BigInt(systemState.epoch);
       const symbols = uniqueSymbols(state.balances.map((b) => b.symbol));
@@ -92,6 +100,7 @@ export function useLiveVault(
       return {
         ...state,
         currentEpoch,
+        sessionBalanceMist: sessionBalance,
         pricedHoldings: priced,
         navUsd,
         spendCapUsd,

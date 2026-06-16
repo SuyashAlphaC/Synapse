@@ -209,7 +209,7 @@ function computeStatus(minutesSince: number | null): {
     return {
       kind: 'stalled',
       label: `Agent stalled · ${minutesSince}m since last tick`,
-      hint: 'The runtime missed at least one expected cycle. Check the Fargate task logs in CloudWatch (or your local terminal) for errors.',
+      hint: 'The runtime missed at least one expected cycle. Check session gas (Fund session panel), operational budget (Policy), and Fargate logs in CloudWatch.',
       accent: 'var(--accent-yellow)',
       dot: 'var(--accent-yellow)',
     };

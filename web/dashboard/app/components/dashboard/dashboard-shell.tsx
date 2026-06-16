@@ -77,6 +77,7 @@ import { useLiveNavHistory } from '../../hooks/use-live-nav-history';
 import { useStrategies } from '../../hooks/use-strategies';
 import { requiresWalrusConsent, requiresAnthropicApiKey } from '@/lib/strategies';
 import { VaultExpiredBanner } from './vault-expired-banner';
+import { VaultSessionGasBanner } from './vault-session-gas-banner';
 
 interface DashboardShellProps {
   /**
@@ -210,11 +211,12 @@ export function DashboardShell({ forcedVaultId }: DashboardShellProps = {}) {
       )}
 
       {live && !live.identity.revoked && (
-        <div className="mt-6">
+        <div className="mt-6 space-y-4">
           <VaultExpiredBanner
             currentEpoch={live.currentEpoch}
             expiryEpoch={live.identity.expiryEpoch}
           />
+          <VaultSessionGasBanner live={live} />
         </div>
       )}
 

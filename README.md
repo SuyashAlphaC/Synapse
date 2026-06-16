@@ -302,6 +302,7 @@ CI                                   Move + SDK + dashboard + Docker + secret-le
 | **Mainnet** | Testnet only; deliberate cutover (package publish, DEEP fees, external audit). |
 | **DEEP on mainnet** | Runtime fails fast on mainnet until treasury holds DEEP for DeepBook fees. |
 | **Third-party audit** | Internal audit (`AUDIT.md`) complete; external audit before mainnet. |
+| **Session gas / operational budget** | Hosted ticks stall if the session wallet is below ~0.02–0.03 SUI or the per-epoch operational pull cap is exhausted. The dashboard surfaces a **runtime gas** banner; production needs CloudWatch alarms + higher mint seed / op cap defaults. |
 
 ---
 

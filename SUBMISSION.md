@@ -143,7 +143,7 @@ Enclave object: [`0x2e170c4465913426e8a1a934fac1cc93b863dd28205778bf2d3cff11deea
 
 Treasury safety does **not** depend on Walrus or MemWal honesty — only on Move policy gates. Walrus provides **durability, portability, and audit integrity** (hash on-chain). Full analysis: **[THREAT_MODEL.md](./THREAT_MODEL.md)**.
 
-Honest gaps: messaging requires channel MemberCap provisioning; attestation proof uses a dev enclave (production Nitro/Oyster documented); external audit before mainnet.
+Honest gaps: messaging requires channel MemberCap provisioning; attestation proof uses a dev enclave (production Nitro/Oyster documented); external audit before mainnet; unattended production requires monitoring session gas and operational budget — the dashboard shows a **runtime gas** warning when ticks are likely failing.
 
 ---
 

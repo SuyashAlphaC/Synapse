@@ -34,6 +34,8 @@ export interface LiveAgentIdentity {
   operationalCapPerEpoch: bigint;
   /** v2+: amount pulled this epoch via pull_operational_funds. */
   operationalSpentThisEpoch: bigint;
+  /** v2+: epoch when operational spent counter was last rolled (Move `last_epoch_seen`). */
+  operationalLastEpochSeen: bigint;
   /**
    * v3+: vault owner has opted into dynamic Walrus-loaded strategy
    * execution. Defaults to `false` for any vault that never called
@@ -135,6 +137,7 @@ export async function loadLiveVault({
     ...identityCore,
     operationalCapPerEpoch: opBudget.capPerEpoch,
     operationalSpentThisEpoch: opBudget.spentThisEpoch,
+    operationalLastEpochSeen: opBudget.lastEpochSeen,
     acceptsWalrusExecution,
     requiresAttestation,
   };
@@ -242,7 +245,7 @@ async function loadRequiresAttestation(
 async function loadOperationalBudget(
   client: SuiJsonRpcClient,
   vaultId: string,
-): Promise<{ capPerEpoch: bigint; spentThisEpoch: bigint }> {
+): Promise<{ capPerEpoch: bigint; spentThisEpoch: bigint; lastEpochSeen: bigint }> {
   const packages =
     SYNAPSE_PACKAGE_HISTORY.length > 0 ? SYNAPSE_PACKAGE_HISTORY : [SYNAPSE_PACKAGE_ID];
   for (const pkg of packages) {
@@ -263,12 +266,13 @@ async function loadOperationalBudget(
       return {
         capPerEpoch: bigintField(valueFields.cap_per_epoch, 'cap_per_epoch'),
         spentThisEpoch: bigintField(valueFields.spent_this_epoch, 'spent_this_epoch'),
+        lastEpochSeen: bigintField(valueFields.last_epoch_seen, 'last_epoch_seen'),
       };
     } catch {
       // Try the next package version; absence is the common case, not an error.
     }
   }
-  return { capPerEpoch: 0n, spentThisEpoch: 0n };
+  return { capPerEpoch: 0n, spentThisEpoch: 0n, lastEpochSeen: 0n };
 }
 
 async function loadTreasuryBalances(
@@ -353,6 +357,7 @@ function parseIdentity(
   LiveAgentIdentity,
   | 'operationalCapPerEpoch'
   | 'operationalSpentThisEpoch'
+  | 'operationalLastEpochSeen'
   | 'acceptsWalrusExecution'
   | 'requiresAttestation'
 > {
