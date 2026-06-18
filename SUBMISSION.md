@@ -8,6 +8,7 @@
 | **Repo** | [github.com/SuyashAlphaC/Synapse](https://github.com/SuyashAlphaC/Synapse) |
 | **Live demo** | [synapse-kappa-sable.vercel.app](https://synapse-kappa-sable.vercel.app/) |
 | **Demo video** | [YouTube (~7 min)](https://www.youtube.com/watch?v=R2g5HCLmApI) |
+| **Strategy publish demo** | [YouTube (~90 sec)](https://youtu.be/be7ZJP-vJw8) — bundler → Walrus → `StrategyPublishedEvent` → marketplace ([`/marketplace/publish`](https://synapse-kappa-sable.vercel.app/marketplace/publish)) |
 | **Attestation addendum** | [YouTube (~90 sec)](https://www.youtube.com/watch?v=GbzpgDedcWU) — Policy, hosted runtime, Suiscan `DecisionAttestedV2` + swap |
 | **Memory inspector** | [synapse-kappa-sable.vercel.app/inspector](https://synapse-kappa-sable.vercel.app/inspector) (read-only, no wallet) |
 | **Walrus Site** | `0x55c33a39757a4487ca8cebdaffd5b7b9f9ba9601456a82ef5f031c689ae0001a` |
@@ -35,7 +36,7 @@ The Walrus track asks for the opposite: **durable memory, verifiable files, mult
 |---|---|
 | Long-term verifiable memory | MemWal `recall` / `remember` **every tick**; dashboard recall panel runs the same query as the runtime |
 | Persistent files on Walrus | Markdown audit report **every tick** + on-chain `ArtifactRef` (blob id + SHA-256) |
-| Dev tooling | `@synapse-core/adapter-langgraph`, Walrus strategy publisher, headless runtime + AWS Fargate hosting |
+| Dev tooling | `@synapse-core/adapter-langgraph`, Walrus strategy publisher, headless runtime + AWS Fargate hosting — **[publish demo (~90 sec)](https://youtu.be/be7ZJP-vJw8)** |
 | Long-running workflow | EventBridge-scheduled Fargate ticks; state resumes from MemWal after restart |
 | Multi-agent coordination | Shared MemWal namespace + on-chain `CrossAgentReadEvent`; Sui Stack Messaging with `record_send` / `record_receive` |
 | Artifact-driven workflows | Peers reuse Walrus audit artifacts via cross-agent recall |
@@ -65,7 +66,7 @@ Implementation: `sdk/packages/vault/src/runtime/runtime.ts`
 
 - **Move policy envelope** — spend cap, allowlist, expiry, one-tx revoke; AI never custodies funds
 - **DeepBookV3 composability** — swaps inside the same PTB as audit + performance recording
-- **Strategy marketplace** — on-chain hire, Walrus-loaded bundles (hash-verified), royalty in PTB
+- **Strategy marketplace** — on-chain hire, Walrus-loaded bundles (hash-verified), royalty in PTB — [publish demo](https://youtu.be/be7ZJP-vJw8)
 - **MemWal + cross-agent reads** — attested on reader's chain (`CrossAgentReadEvent`)
 - **Sui Stack Messaging** — Seal + Walrus payloads; on-chain correlator in tick loop
 - **Nautilus attestation (opt-in)** — enclave signs decision; Move verifies before swap
@@ -94,6 +95,22 @@ Strategy bundle (Walrus): `2UIzJtYptwlLqh8lzotjd046DaTFa4th3By7UXV4VLs` · Messa
 | Nautilus decision attestation | [tx `7TLfyS6a…`](https://suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe) (`DecisionAttested`) |
 | Seal policy package | `0x14a1cbc600affc135510237ad779f19f924dfb2a6ee068b9b85f2c59d69bc91a` |
 | Messaging end-to-end | `examples/messaging-demo/` |
+
+---
+
+## Strategy marketplace publish demo
+
+Third-party quants ship strategies as **hash-verified Walrus bundles**, not opaque server code. The [publish demo (~90 sec)](https://youtu.be/be7ZJP-vJw8) walks through the full path judges can reproduce:
+
+1. Open [synapse-kappa-sable.vercel.app/marketplace/publish](https://synapse-kappa-sable.vercel.app/marketplace/publish) (Sui testnet wallet).
+2. Paste a minimal TypeScript `Strategy` (demo: **Demo Band Keeper** — 45–55% SUI band on DeepBook testnet).
+3. **Bundle & upload to Walrus** → blob ID + `code_hash` (runtime verifies every tick).
+4. **Publish on-chain** → `Strategy` object + `StrategistCap`; Suiscan shows `StrategyPublishedEvent`.
+5. Strategy appears in [marketplace](https://synapse-kappa-sable.vercel.app/marketplace) for vault owners to hire.
+
+Treasury safety still comes from Move policy (spend cap, allowlist, expiry, revoke) — Walrus is durability and portability of strategy code, not permission to move funds.
+
+**Video:** [youtu.be/be7ZJP-vJw8](https://youtu.be/be7ZJP-vJw8)
 
 ---
 
@@ -131,11 +148,12 @@ Enclave object: [`0x2e170c4465913426e8a1a934fac1cc93b863dd28205778bf2d3cff11deea
 ## 60-second judge walkthrough
 
 1. **Watch** the [demo video](https://www.youtube.com/watch?v=R2g5HCLmApI) — problem, live vault audit timeline, Walrus artifacts, MemWal recall, inspector, coordination.
-2. **Attestation** — [addendum (~90 sec)](https://www.youtube.com/watch?v=GbzpgDedcWU) · [Suiscan proof tx](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH) · [details](#nautilus-attestation-proof)
-3. **Inspect on-chain** (no wallet): [synapse-kappa-sable.vercel.app/inspector](https://synapse-kappa-sable.vercel.app/inspector) → paste `0x347dd8d77d137042bdae4bc847e4dda798529bd0bf934115ca0395b6afec65e8` → audit timeline + Walrus artifact links.
-4. **Verify txs** — rebalance [`2hU2arKC…`](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH) · cross-agent read [`AQQZhQRQ…`](https://suiscan.xyz/testnet/tx/AQQZhQRQZ8vK1Y7zPrxaGT7MS9cRkVAoXLYHvSSEDzRm) · attestation [`7TLfyS6a…`](https://suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe).
-5. **Explore dashboard** — connect wallet at [synapse-kappa-sable.vercel.app/dashboard](https://synapse-kappa-sable.vercel.app/dashboard) for owned vaults, MemWal recall panel, artifacts, and policy controls; or [mint](https://synapse-kappa-sable.vercel.app/mint) a new vault.
-6. **Clone locally** — `npm install` → `cd web/dashboard && npm run dev` for full mint path.
+2. **Strategy publish** — [publish demo (~90 sec)](https://youtu.be/be7ZJP-vJw8) · [marketplace/publish](https://synapse-kappa-sable.vercel.app/marketplace/publish) · [details](#strategy-marketplace-publish-demo)
+3. **Attestation** — [addendum (~90 sec)](https://www.youtube.com/watch?v=GbzpgDedcWU) · [Suiscan proof tx](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH) · [details](#nautilus-attestation-proof)
+4. **Inspect on-chain** (no wallet): [synapse-kappa-sable.vercel.app/inspector](https://synapse-kappa-sable.vercel.app/inspector) → paste `0x347dd8d77d137042bdae4bc847e4dda798529bd0bf934115ca0395b6afec65e8` → audit timeline + Walrus artifact links.
+5. **Verify txs** — rebalance [`2hU2arKC…`](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH) · cross-agent read [`AQQZhQRQ…`](https://suiscan.xyz/testnet/tx/AQQZhQRQZ8vK1Y7zPrxaGT7MS9cRkVAoXLYHvSSEDzRm) · attestation [`7TLfyS6a…`](https://suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe).
+6. **Explore dashboard** — connect wallet at [synapse-kappa-sable.vercel.app/dashboard](https://synapse-kappa-sable.vercel.app/dashboard) for owned vaults, MemWal recall panel, artifacts, and policy controls; or [mint](https://synapse-kappa-sable.vercel.app/mint) a new vault.
+7. **Clone locally** — `npm install` → `cd web/dashboard && npm run dev` for full mint path.
 
 ---
 

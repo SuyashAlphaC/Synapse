@@ -10,6 +10,7 @@
 <p align="center">
   <a href="https://synapse-kappa-sable.vercel.app">Live demo</a> ·
   <a href="https://www.youtube.com/watch?v=R2g5HCLmApI">Demo video</a> ·
+  <a href="https://youtu.be/be7ZJP-vJw8">Publish demo</a> ·
   <a href="https://www.youtube.com/watch?v=GbzpgDedcWU">Attestation</a> ·
   <a href="https://github.com/SuyashAlphaC/Synapse">Code</a> ·
   Sui Overflow 2026 · <strong>Walrus Track</strong>
@@ -22,6 +23,7 @@ Built for **Sui Overflow 2026 — Walrus Track**.
 - **Judge summary:** [SUBMISSION.md](./SUBMISSION.md) — one-page executive brief
 - **Operations runbook:** [docs/operations/RUNBOOK.md](./docs/operations/RUNBOOK.md) — session gas, operational budget, expiry, CloudWatch
 - **Demo video:** [YouTube (~7 min)](https://www.youtube.com/watch?v=R2g5HCLmApI) — live vaults, Walrus artifacts, MemWal recall, inspector, coordination
+- **Strategy publish demo:** [YouTube (~90 sec)](https://youtu.be/be7ZJP-vJw8) — bundle TypeScript → Walrus → on-chain `Strategy` → marketplace listing ([`/marketplace/publish`](https://synapse-kappa-sable.vercel.app/marketplace/publish))
 - **Attestation addendum:** [YouTube (~90 sec)](https://www.youtube.com/watch?v=GbzpgDedcWU) — Nautilus Policy, hosted runtime, Suiscan proof
 - **Code:** this repo (Move + TypeScript SDK + Next.js dashboard + headless runtime)
 - **Marketing site (Walrus Sites, testnet):** Site object `0x55c33a39757a4487ca8cebdaffd5b7b9f9ba9601456a82ef5f031c689ae0001a`
@@ -29,11 +31,12 @@ Built for **Sui Overflow 2026 — Walrus Track**.
 ### Judge quickstart (60 seconds)
 
 1. **Watch** the [demo video](https://www.youtube.com/watch?v=R2g5HCLmApI) (problem → live vault → Walrus artifact → MemWal).
-2. **Inspect** a live testnet vault (no wallet required): open [synapse-kappa-sable.vercel.app/inspector](https://synapse-kappa-sable.vercel.app/inspector) and paste:
+2. **Publish a strategy** — [publish demo (~90 sec)](https://youtu.be/be7ZJP-vJw8) · try it at [marketplace/publish](https://synapse-kappa-sable.vercel.app/marketplace/publish).
+3. **Inspect** a live testnet vault (no wallet required): open [synapse-kappa-sable.vercel.app/inspector](https://synapse-kappa-sable.vercel.app/inspector) and paste:
    - `0x347dd8d77d137042bdae4bc847e4dda798529bd0bf934115ca0395b6afec65e8` (primary demo vault — rebalance + messaging)
    - `0xbefc3142c5138e07655485a984c031e18494f71279486b0dd01e949309268cf4` (second hosted vault)
-3. **Verify on-chain:** cross-agent read [`AQQZhQRQ…`](https://suiscan.xyz/testnet/tx/AQQZhQRQZ8vK1Y7zPrxaGT7MS9cRkVAoXLYHvSSEDzRm) · Nautilus attestation [`7TLfyS6a…`](https://suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe) · live rebalance [`2hU2arKC…`](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH)
-4. **Nautilus attestation** — [addendum video (~90 sec)](https://www.youtube.com/watch?v=GbzpgDedcWU) · proof tx [`2hU2arKC…`](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH)
+4. **Verify on-chain:** cross-agent read [`AQQZhQRQ…`](https://suiscan.xyz/testnet/tx/AQQZhQRQZ8vK1Y7zPrxaGT7MS9cRkVAoXLYHvSSEDzRm) · Nautilus attestation [`7TLfyS6a…`](https://suiscan.xyz/testnet/tx/7TLfyS6azzktKpbwBWBMV12hyV6hicNQZKip8weaAkPe) · live rebalance [`2hU2arKC…`](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH)
+5. **Nautilus attestation** — [addendum video (~90 sec)](https://www.youtube.com/watch?v=GbzpgDedcWU) · proof tx [`2hU2arKC…`](https://suiscan.xyz/testnet/tx/2hU2arKSpg94N7C9AF36ED2ZKvDbgsfEYFE5R8trtpbH)
 
 Full walkthrough and proof table: **[SUBMISSION.md](./SUBMISSION.md)**.
 
@@ -53,7 +56,7 @@ The Walrus track asks for **working systems**, not demos: agents that **remember
 | "AI agent" without proof | Trust the operator | **Move policy gates** (only the VM moves money) + optional **Nautilus attestation** (enclave signs decision; Move verifies before swap) |
 | Dev tooling as an afterthought | README snippet | **`@synapse-core/adapter-langgraph`**, Walrus strategy publisher, hosted runtime on AWS Fargate |
 
-**Judge checklist in one minute:** [demo video](https://www.youtube.com/watch?v=R2g5HCLmApI) → [memory inspector](https://synapse-kappa-sable.vercel.app/inspector) with a live vault ID → verify on-chain txs in [SUBMISSION.md](./SUBMISSION.md). Mint path, MemWal recall, Seal decrypt, and Walrus Sites are all in-repo on testnet.
+**Judge checklist in one minute:** [demo video](https://www.youtube.com/watch?v=R2g5HCLmApI) → [strategy publish demo](https://youtu.be/be7ZJP-vJw8) → [memory inspector](https://synapse-kappa-sable.vercel.app/inspector) with a live vault ID → verify on-chain txs in [SUBMISSION.md](./SUBMISSION.md). Mint path, MemWal recall, Seal decrypt, and Walrus Sites are all in-repo on testnet.
 
 ---
 
@@ -229,7 +232,7 @@ Plus `move/synapse_seal` — Seal access policy (`seal_approve`).
 ## 7. Real-world use cases
 
 - **DAO treasury** — Automate rebalance within on-chain mandate; community audits Walrus artifacts + chain events.
-- **Strategy marketplace** — Quants publish Walrus strategies; earn royalty atomically in rebalance PTB; reputation accrues on-chain.
+- **Strategy marketplace** — Quants publish Walrus strategies; earn royalty atomically in rebalance PTB; reputation accrues on-chain. See the [publish demo (~90 sec)](https://youtu.be/be7ZJP-vJw8).
 - **Multi-vault desk** — Many vaults, one runtime image, isolated secrets; cross-agent MemWal for desk-level coordination.
 - **Agent memory infra** — Embed `SynapseStore` / MemWal without the treasury product.
 - **Compliance** — Regulator verifies behavior from chain + Walrus without operator access.
