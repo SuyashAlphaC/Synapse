@@ -20,10 +20,11 @@ export function EquityCurve({
 }) {
   const stats = useMemo(() => {
     const series = summary.series;
-    const benchmark = series.map(
-      (p, i) =>
-        series[0]!.suiUnits * p.priceUsd + series[0]!.usdcUnits,
-    );
+    const quoteAtStart =
+      series[0]!.quoteUnits ??
+      (series[0] as { usdcUnits?: number }).usdcUnits ??
+      0;
+    const benchmark = series.map((p) => series[0]!.suiUnits * p.priceUsd + quoteAtStart);
     const navMin = Math.min(
       ...series.map((p) => p.navUsd),
       ...benchmark,

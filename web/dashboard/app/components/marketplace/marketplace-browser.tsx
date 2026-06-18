@@ -12,7 +12,6 @@ import {
   type LiveStrategy,
   type RiskProfile,
 } from '@/lib/strategies';
-import { backtestSlugForStrategy } from '@/lib/backtests';
 import { CodeTag } from '../ui/code-tag';
 import { explorerAddressUrl, explorerObjectUrl } from '@/lib/synapse-config';
 import { shortenAddress, shortenHash } from '@/lib/format';
@@ -182,12 +181,11 @@ function StrategyCard({
       : strategy.riskProfile === 1
         ? 'var(--accent-blue)'
         : 'var(--accent-orange)';
-  const slug = backtestSlugForStrategy(strategy.name);
-  const backtest = useBacktest(slug);
+  const backtest = useBacktest(strategy.id);
   return (
     <motion.article
       layout
-      id={slug ?? undefined}
+      id={strategy.id}
       className="card-flat relative flex flex-col gap-4 overflow-hidden p-5"
     >
       <div className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: accent }} />
@@ -211,7 +209,13 @@ function StrategyCard({
 
       <p className="line-clamp-2 text-sm leading-relaxed text-ink-soft">{strategy.description}</p>
 
-      {backtest.data && (
+      {backtest.isLoading && (
+        <div className="-mx-1 rounded-sm border border-divider bg-paper p-3 font-mono text-[10px] text-ink-mute">
+          Computing live 90d backtest…
+        </div>
+      )}
+
+      {backtest.data && !backtest.data.error && backtest.data.series.length > 0 && (
         <div className="-mx-1 rounded-sm border border-divider bg-paper p-3">
           <div className="flex items-baseline justify-between">
             <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-mute">

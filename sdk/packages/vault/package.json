@@ -41,6 +41,10 @@
     "./strategy-bundle": {
       "types": "./dist/runtime/strategy-bundle.d.ts",
       "default": "./dist/runtime/strategy-bundle.js"
+    },
+    "./walrus-loader": {
+      "types": "./dist/runtime/walrus-loader.d.ts",
+      "default": "./dist/runtime/walrus-loader.js"
     }
   },
   "bin": {

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "sync-vault": "npm run build --prefix ../../sdk/packages/client && npm run build --prefix ../../sdk/packages/memwal-bridge && npm run build --prefix ../../sdk/packages/vault && npm install --install-links --include=dev",
+    "sync-vault": "npm run build --prefix ../../sdk/packages/client && npm run build --prefix ../../sdk/packages/memwal-bridge && npm run build --prefix ../../sdk/packages/vault && npm install --install-links --include=dev && cp -r ../../sdk/packages/vault/dist/* node_modules/@synapse-core/vault/dist/ && cp ../../sdk/packages/vault/package.json node_modules/@synapse-core/vault/package.json",
     "sync-vault:bridge": "npm install --prefix ../../examples/messaging-runtime-bridge && npm run build:deploy --prefix ../../examples/messaging-runtime-bridge",
     "dev:setup": "npm run sync-vault && npm run sync-vault:bridge",
     "dev": "next dev",

@@ -24,19 +24,21 @@ Not executable. Exports `PACKAGE_ID`, `NETWORK`, `SEEDED_STRATEGIES`,
 script imports from here so a package upgrade is a one-line change in
 this file.
 
-### `backtest-strategies.ts` — refresh marketplace performance data
+### `backtest-strategies.ts` — static backtest JSON (offline fallback)
 
-Pulls 90 days of SUI/USD daily closes from CoinGecko, replays each of
-the three strategies through its real `evaluate()` function, writes JSON
-to `web/dashboard/public/backtests/`.
+Pulls 90 days of SUI/USD daily closes from CoinGecko, replays bundled
+strategies through `evaluate()`, writes JSON to
+`web/dashboard/public/backtests/`.
 
 ```bash
 npx tsx scripts/backtest-strategies.ts
 ```
 
-The dashboard's `/marketplace` strip + the marketing site at `web/site/`
-consume those JSON files. Re-run weekly (or after material strategy code
-changes) to keep numbers fresh. Takes ~30 seconds.
+**Production:** the dashboard serves **live** backtests via
+`GET /api/backtests` and `GET /api/backtests/[strategyId]` — CoinGecko
+prices refreshed hourly, every **active** marketplace strategy resolved
+from Walrus (or bundled fallback), cached in memory. Static JSON is only
+used when the API is unreachable.
 
 ### `simulate-tick.ts` — dry-run an agent decision
 

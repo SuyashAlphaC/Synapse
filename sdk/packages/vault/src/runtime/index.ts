@@ -13,3 +13,5 @@ export * from './alerts.js';
 export * from './cross-agent.js';
 export * from './messaging.js';
 export * from './messaging-bootstrap.js';
+export { loadStrategyFromWalrus, clearWalrusStrategyCache } from './walrus-loader.js';
+export type { LoadedWalrusStrategy, WalrusNetwork } from './walrus-loader.js';
