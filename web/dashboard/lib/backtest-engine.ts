@@ -71,6 +71,8 @@ export interface BacktestIndex {
   startDate: string;
   endDate: string;
   priceSource: 'coingecko';
+  /** SUI/USD price change over the replay window (first → last daily close). */
+  suiPriceChangePct?: number;
   strategies: BacktestIndexEntry[];
 }
 
@@ -322,13 +324,38 @@ export function summaryToIndexEntry(summary: BacktestSummary): BacktestIndexEntr
   };
 }
 
-export function buildBacktestIndex(summaries: BacktestSummary[]): BacktestIndex {
+/** SUI/USD % change from first to last daily close in the price series. */
+export function computeSuiPriceChangePct(prices: DailyPrice[]): number | undefined {
+  if (prices.length < 2) return undefined;
+  const start = prices[0]!.priceUsd;
+  const end = prices[prices.length - 1]!.priceUsd;
+  if (start <= 0) return undefined;
+  return ((end - start) / start) * 100;
+}
+
+export function buildBacktestIndex(
+  summaries: BacktestSummary[],
+  prices?: DailyPrice[],
+): BacktestIndex {
   const ok = summaries.filter((s) => !s.error && s.startDate);
+  const suiFromPrices = prices ? computeSuiPriceChangePct(prices) : undefined;
+  const suiFromSeries =
+    suiFromPrices ??
+    (() => {
+      const withSeries = ok.find((s) => s.series.length >= 2);
+      if (!withSeries) return undefined;
+      const start = withSeries.series[0]!.priceUsd;
+      const end = withSeries.series[withSeries.series.length - 1]!.priceUsd;
+      if (start <= 0) return undefined;
+      return ((end - start) / start) * 100;
+    })();
+
   return {
     generatedAt: new Date().toISOString(),
     startDate: ok[0]?.startDate ?? summaries[0]?.startDate ?? '',
     endDate: ok[0]?.endDate ?? summaries[0]?.endDate ?? '',
     priceSource: 'coingecko',
+    ...(suiFromSeries !== undefined ? { suiPriceChangePct: suiFromSeries } : {}),
     strategies: summaries.map(summaryToIndexEntry),
   };
 }

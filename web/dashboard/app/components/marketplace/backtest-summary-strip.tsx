@@ -37,6 +37,16 @@ export function BacktestSummaryStrip() {
             <span className="text-ink">
               {data.startDate} → {data.endDate}
             </span>
+            {data.suiPriceChangePct !== undefined && (
+              <>
+                {' '}
+                · benchmark{' '}
+                <span className="text-ink">
+                  SUI {data.suiPriceChangePct >= 0 ? '+' : ''}
+                  {data.suiPriceChangePct.toFixed(1)}% in window
+                </span>
+              </>
+            )}
           </p>
           <h2 className="mt-1 font-display text-2xl font-bold tracking-tight md:text-3xl">
             Real returns,{' '}

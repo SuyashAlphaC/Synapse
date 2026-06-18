@@ -119,7 +119,7 @@ export async function getLiveBacktestIndex(): Promise<BacktestIndex> {
 
   const active = catalog.filter((s) => s.active);
   const summaries = await Promise.all(active.map((s) => backtestOne(s, prices)));
-  return buildBacktestIndex(summaries);
+  return buildBacktestIndex(summaries, prices);
 }
 
 export async function getLiveBacktest(strategyId: string): Promise<BacktestSummary | null> {
