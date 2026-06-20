@@ -334,3 +334,95 @@ SUBMISSION.md            Walrus Track one-page executive summary
 docs/operations/       Operator runbook (hosted runtime troubleshooting)
 AUDIT.md                 Internal security audit + remediation log
 ```
+
+
+
+## Go-to-market strategy
+
+### Positioning
+
+**Synapse Vault is infrastructure for controlled financial autonomy** — not a custodial AI fund. The pitch to buyers is: *hire an agent like you hire a strategist, bound it with on-chain policy, audit every decision on Walrus, revoke in one click.*
+
+We sell **trust + automation** to treasury operators, and **distribution + royalties** to strategy authors.
+
+### Target customers (priority order)
+
+| Segment | Who | Job to be done | Why Synapse |
+|---|---|---|---|
+| **1. Design-partner DAOs** | Sui-native DAOs, protocol treasuries, ecosystem funds | Rebalance SUI/stable within a mandate without daily multisig votes | Move spend caps + Walrus audit trail = community-verifiable automation |
+| **2. Strategy authors** | Quants, indie strategists, agent builders | Ship logic once; earn on every vault that hires it | Walrus publish → on-chain `Strategy` → royalty in rebalance PTB |
+| **3. Multi-vault operators** | Desks, allocators, future “agent funds” | Run many isolated vaults with shared coordination | One Fargate image per vault, MemWal cross-agent reads, messaging signals |
+| **4. Platform embedders** | Wallets, portfolio apps, L1/L2 teams | Add policy-gated agent treasury without rebuilding Move + Walrus | Open `@synapse-core/vault` SDK + LangGraph adapter |
+
+### Business model
+
+| Revenue stream | Mechanism | Status |
+|---|---|---|
+| **Strategy royalties** | Strategist sets bps on realized profit; paid atomically in rebalance PTB | **Live on testnet** (marketplace + `strategy_registry`) |
+| **Hosted runtime** | Per-vault AWS Fargate + Secrets Manager (operator charges design partners) | **Live** for demo vaults; pricing TBD at scale |
+| **Enterprise / white-label** | Custom policy templates, attestation, compliance exports | Post-mainnet conversation |
+| **SDK / infra** | MemWal + Walrus integration for non-treasury agents | Open-source wedge; services on top later |
+
+The dashboard **pricing calculator** models DAO-facing ARR (management + performance fees on AUM) for sales conversations — separate from on-chain strategist royalties.
+
+### Phased rollout
+
+**Phase 0 — Hackathon / now (testnet)**  
+Prove the full loop: mint → hire → tick → Walrus artifact → MemWal → optional attestation. Content: demo videos, inspector, DeepSurge submission, Sui/Walrus community posts.
+
+**Phase 1 — Design partners (Q3 2026)**  
+3–5 Sui DAOs or protocols run **read-only or capped** vaults ($50k–$500k testnet-equivalent mandates). Success = 30+ days uptime, auditable artifact chain, zero policy breaches.
+
+**Phase 2 — Marketplace liquidity (Q4 2026)**  
+Recruit 10+ published strategies; backtests + reputation on-chain; featured listings for conservative / balanced / momentum profiles. Success = multiple vaults hiring non-Synapse-authored strategies.
+
+**Phase 3 — Mainnet pilot (2027)**  
+External audit, DEEP fee path, production Nautilus/Oyster option. Start with single-asset SUI/ USDC vaults on DeepBook mainnet. Success = first paid hosted runtime + first strategist royalty payout on mainnet.
+
+**Phase 4 — Expand surface area**  
+Multi-asset vaults, RWA treasuries, compliance export packs (regulator reads chain + Walrus without operator keys), partner wallet “Hire agent” embed.
+
+### Distribution channels
+
+1. **Sui Overflow / DeepSurge** — judges, sponsors, ecosystem grants (Walrus track alignment).
+2. **Walrus + MemWal communities** — dev workshops on publish flow; “your agent’s memory belongs on Walrus” narrative.
+3. **DAO outreach** — direct to Sui Foundation grantees, DeFi protocols with idle treasury, SuiHub events.
+4. **Strategist funnel** — `/marketplace/publish`, example strategies in repo, [publish demo video](https://youtu.be/be7ZJP-vJw8).
+5. **Content** — inspector links in every post (verifiable proof without wallet); Suiscan tx threads for rebalance + attestation.
+6. **Developer wedge** — `@synapse-core/adapter-langgraph`, headless runtime docs, “embed Synapse policy without our UI.”
+
+### Key metrics (12-month targets post-hackathon)
+
+| Metric | Target |
+|---|---|
+| Design-partner vaults (testnet → mainnet) | 5 → 2 paid mainnet |
+| Strategies published on marketplace | 25+ |
+| Vaults hiring third-party strategies | 10+ |
+| Median vault uptime (hosted runtime) | >99% ticks attempted |
+| Walrus artifacts / vault / month | 4,000+ (10-min cadence) |
+| Strategist royalty volume (mainnet) | First $1k paid to external author |
+
+### Competitive moat
+
+- **Policy in Move, not in TypeScript** — competitors can copy UI; they cannot bypass spend caps without a new audit.
+- **Walrus as system of record** — memory + artifacts + strategy bundles in one tick loop (not bolted-on storage).
+- **Two-sided marketplace** — vault owners and strategists; network effects as reputation and backtests accrue on-chain.
+- **Sui stack depth** — DeepBook composability, Messaging, Seal, Nautilus in one product story.
+
+### Risks and mitigations
+
+| Risk | Mitigation |
+|---|---|
+| Testnet ≠ production trust | External audit before mainnet; attestation opt-in; public threat model |
+| Operator dependency (Fargate) | Self-host path documented; vault owner can run `bin/run.ts` |
+| Strategy quality / scams | On-chain reputation, backtests, allowlist + spend caps limit blast radius |
+| Walrus/MemWal availability | Graceful degrade documented; chain policy still protects treasury |
+
+### One-line GTM summary
+
+**Win design-partner DAOs on verifiable automation → grow strategist supply on the marketplace → monetize via royalties and hosted runtime at mainnet.**
+
+---
+
+*Synapse Labs · Sui Overflow 2026 · Walrus Track*
+

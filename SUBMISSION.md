@@ -7,9 +7,9 @@
 | **Team** | Synapse Labs |
 | **Repo** | [github.com/SuyashAlphaC/Synapse](https://github.com/SuyashAlphaC/Synapse) |
 | **Live demo** | [synapse-kappa-sable.vercel.app](https://synapse-kappa-sable.vercel.app/) |
-| **Demo video** | [YouTube (~7 min)](https://www.youtube.com/watch?v=R2g5HCLmApI) |
-| **Strategy publish demo** | [YouTube (~90 sec)](https://youtu.be/be7ZJP-vJw8) — bundler → Walrus → `StrategyPublishedEvent` → marketplace ([`/marketplace/publish`](https://synapse-kappa-sable.vercel.app/marketplace/publish)) |
-| **Attestation addendum** | [YouTube (~90 sec)](https://www.youtube.com/watch?v=GbzpgDedcWU) — Policy, hosted runtime, Suiscan `DecisionAttestedV2` + swap |
+| **Demo video** | [YouTube](https://www.youtube.com/watch?v=R2g5HCLmApI) |
+| **Strategy publish demo** | [YouTube](https://youtu.be/be7ZJP-vJw8) — bundler → Walrus → `StrategyPublishedEvent` → marketplace ([`/marketplace/publish`](https://synapse-kappa-sable.vercel.app/marketplace/publish)) |
+| **Attestation addendum** | [YouTube](https://www.youtube.com/watch?v=GbzpgDedcWU) — Policy, hosted runtime, Suiscan `DecisionAttestedV2` + swap |
 | **Memory inspector** | [synapse-kappa-sable.vercel.app/inspector](https://synapse-kappa-sable.vercel.app/inspector) (read-only, no wallet) |
 | **Walrus Site** | `0x55c33a39757a4487ca8cebdaffd5b7b9f9ba9601456a82ef5f031c689ae0001a` |
 | **Move package (v6)** | `0xe95241a800a97841e7676437cc83c9761e6d30e42ab8bdd590d49fd40e22a797` |
